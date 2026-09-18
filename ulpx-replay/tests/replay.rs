@@ -648,3 +648,60 @@ fn test_identity_and_diff_rules() {
     assert_eq!(diff_frames.frame_structure.removed_frame_indices, vec![0]);
     assert_eq!(diff_frames.frame_structure.added_frame_indices, vec![0]);
 }
+
+use std::env;
+use std::fs;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use ulpx_core::storage::LocalEvidenceStore;
+static FILE_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+fn get_temp_path() -> std::path::PathBuf {
+    let mut path = env::temp_dir();
+    path.push(format!(
+        "ulpx_test_replay_store_{}_{}.ulpx",
+        std::process::id(),
+        FILE_COUNTER.fetch_add(1, Ordering::SeqCst)
+    ));
+    path
+}
+
+#[test]
+fn test_replay_with_local_store() {
+    let path = get_temp_path();
+    let mut store = LocalEvidenceStore::new(&path).unwrap();
+    let id = EventId::new("local-replay").unwrap();
+    let raw = RawEvent::new(
+        id.clone(),
+        b"{\"msg\":\"test\"}".to_vec(),
+        Source("src".into()),
+    );
+    store.store(raw).unwrap();
+
+    let registry = ParserRegistry::new();
+    let infer = InferenceEngine::with_defaults();
+    let ir = CompositeConverter::new();
+    let map = MappingEngine::new();
+    let framer = JsonObjectFramer;
+
+    let pipeline = ReplayPipeline::new(
+        &store,
+        &framer,
+        ComponentConfig {
+            id: "json".into(),
+            version: "1".into(),
+        },
+        &registry,
+        &infer,
+        &ir,
+        &map,
+        ComponentConfig {
+            id: "map".into(),
+            version: "1".into(),
+        },
+    );
+
+    let interp = pipeline.replay(&id).unwrap();
+    assert_eq!(interp.frames.len(), 1);
+
+    let _ = fs::remove_file(path);
+}

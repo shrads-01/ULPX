@@ -81,6 +81,14 @@ pub struct RawEvent {
 
 impl RawEvent {
     /// Constructs a new RawEvent. Empty raw_bytes is allowed.
+    pub(crate) fn from_parts(metadata: EventMetadata, raw_bytes: Vec<u8>) -> Self {
+        RawEvent {
+            metadata,
+            raw_bytes,
+        }
+    }
+
+    /// Constructs a new RawEvent. Empty raw_bytes is allowed.
     pub fn new(event_id: EventId, raw_bytes: Vec<u8>, source: Source) -> Self {
         let metadata = EventMetadata {
             event_id,
