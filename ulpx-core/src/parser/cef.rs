@@ -73,17 +73,20 @@ impl Parser for CefParser {
     }
 
     fn parse(&self, record: &FramedRecord) -> Result<ParserResult, ParserError> {
-        let text = std::str::from_utf8(record.as_bytes())
+        use crate::parser::Span;
+
+        let full_text = std::str::from_utf8(record.as_bytes())
             .map_err(|e| ParserError::Malformed(format!("invalid UTF-8: {e}")))?;
 
-        let text = text.trim();
+        // Find the start offset of the trimmed text to calculate absolute bounds
+        let text_start = full_text.find(|c: char| !c.is_whitespace()).unwrap_or(0);
+        let text = full_text.trim();
 
         if !text.starts_with("CEF:") {
             return Err(ParserError::Unsupported);
         }
 
-        // Split on the first 7 pipes to get the 8 header segments.
-        // We do a manual split to handle exactly 7 unescaped pipes.
+        // parts contains (start_offset, end_offset) relative to `text`
         let parts = split_cef_header(text);
         if parts.len() < 8 {
             return Err(ParserError::Malformed(format!(
@@ -92,27 +95,43 @@ impl Parser for CefParser {
             )));
         }
 
+        let mut fields = Vec::with_capacity(7);
+
+        // Helper to extract a trimmed field and its absolute span
+        let extract_field = |name: &str, start_idx: usize, end_idx: usize| {
+            let slice = &text[start_idx..end_idx];
+            let trimmed = slice.trim();
+            // Calculate how much whitespace was trimmed from the start
+            let trim_start = slice.find(|c: char| !c.is_whitespace()).unwrap_or(0);
+            let abs_start = text_start + start_idx + trim_start;
+            let abs_end = abs_start + trimmed.len();
+            ParsedField::new(name, trimmed, Span::new(abs_start, abs_end).unwrap())
+        };
+
         // parts[0] is "CEF:0"
-        let cef_version = parts[0].strip_prefix("CEF:").unwrap_or("").trim();
-        if cef_version != "0" {
+        let p0 = &text[parts[0].0..parts[0].1];
+        let p0_content_start = if p0.starts_with("CEF:") {
+            parts[0].0 + 4
+        } else {
+            parts[0].0
+        };
+        let cef_version_field = extract_field("cef.version", p0_content_start, parts[0].1);
+
+        if cef_version_field.raw_value != "0" {
             return Err(ParserError::Unsupported);
         }
+        fields.push(cef_version_field);
 
-        let mut fields = vec![
-            ParsedField::new("cef.version", cef_version),
-            ParsedField::new("cef.device_vendor", parts[1].trim()),
-            ParsedField::new("cef.device_product", parts[2].trim()),
-            ParsedField::new("cef.device_version", parts[3].trim()),
-            ParsedField::new("cef.signature_id", parts[4].trim()),
-            ParsedField::new("cef.name", parts[5].trim()),
-            ParsedField::new("cef.severity", parts[6].trim()),
-        ];
+        fields.push(extract_field("cef.device_vendor", parts[1].0, parts[1].1));
+        fields.push(extract_field("cef.device_product", parts[2].0, parts[2].1));
+        fields.push(extract_field("cef.device_version", parts[3].0, parts[3].1));
+        fields.push(extract_field("cef.signature_id", parts[4].0, parts[4].1));
+        fields.push(extract_field("cef.name", parts[5].0, parts[5].1));
+        fields.push(extract_field("cef.severity", parts[6].0, parts[6].1));
 
-        // Remaining parts (index 7+) are extension key-value pairs joined back
-        // (they may contain pipe characters as data in practice, but the standard
-        // says extensions follow the 7th pipe).
-        let extensions_raw = parts[7..].join("|");
-        let ext_fields = parse_extensions(&extensions_raw)?;
+        let ext_start = parts[7].0;
+        let ext_str = &text[ext_start..];
+        let ext_fields = parse_extensions(ext_str, text_start + ext_start)?;
         fields.extend(ext_fields);
 
         Ok(ParserResult {
@@ -126,9 +145,8 @@ impl Parser for CefParser {
 
 /// Split the CEF header by unescaped `|` characters.
 ///
-/// Returns a `Vec` where element 0 is `"CEF:0"`, elements 1–6 are the header
-/// fields, and element 7 onward is the extension string.
-fn split_cef_header(text: &str) -> Vec<&str> {
+/// Returns a `Vec` of `(start, end)` byte indices into `text`.
+fn split_cef_header(text: &str) -> Vec<(usize, usize)> {
     let mut parts = Vec::new();
     let mut start = 0usize;
     let bytes = text.as_bytes();
@@ -136,12 +154,12 @@ fn split_cef_header(text: &str) -> Vec<&str> {
 
     while i < bytes.len() {
         if bytes[i] == b'|' {
-            parts.push(&text[start..i]);
+            parts.push((start, i));
             start = i + 1;
         }
         i += 1;
     }
-    parts.push(&text[start..]);
+    parts.push((start, bytes.len()));
     parts
 }
 
@@ -149,15 +167,30 @@ fn split_cef_header(text: &str) -> Vec<&str> {
 ///
 /// CEF extensions look like: `src=192.168.1.1 dst=10.0.0.1 msg=hello world`
 /// Values may contain spaces if followed by another `key=` token.
-fn parse_extensions(ext: &str) -> Result<Vec<ParsedField>, ParserError> {
-    let ext = ext.trim();
+fn parse_extensions(ext_str: &str, global_offset: usize) -> Result<Vec<ParsedField>, ParserError> {
+    use crate::parser::Span;
+
+    // We do not want to change global offsets, so instead of a simple `.trim()`
+    // which changes indices, we calculate how much whitespace to skip.
+    let trim_start = ext_str.find(|c: char| !c.is_whitespace()).unwrap_or(0);
+    let _ext_end = ext_str.trim_end().len(); // from start of string to end of non-whitespace
+                                             // Note: actually trim_end doesn't give us the index.
+                                             // ext_str.len() - ext_str.trim_end().len() is trailing whitespace
+    let ext = if trim_start < ext_str.len() {
+        let trailing_len = ext_str.len() - ext_str.trim_end().len();
+        &ext_str[trim_start..ext_str.len() - trailing_len]
+    } else {
+        ""
+    };
+
+    let base_offset = global_offset + trim_start;
+
     if ext.is_empty() {
         return Ok(Vec::new());
     }
 
     let mut fields = Vec::new();
     // Find all positions where a key= token starts (alphanumeric key followed by '=').
-    // Strategy: find all `key=` boundaries, then slice values between them.
     let key_positions = find_key_positions(ext);
 
     for i in 0..key_positions.len() {
@@ -186,7 +219,18 @@ fn parse_extensions(ext: &str) -> Result<Vec<ParsedField>, ParserError> {
             )));
         }
 
-        fields.push(ParsedField::new(key, value));
+        let _abs_start = base_offset + key_start;
+        let _abs_end = base_offset + value_end;
+        // The value spans from key to end of value, or just value?
+        // Wait, "exact byte span corresponding to the source representation from which its raw value was extracted."
+        // A single ParsedField has one Span. The CEF parser currently uses `key=value` as the parsed field, where name is key and raw_value is value.
+        // It's probably better for the Span to represent the exact location of the `value`, or does it mean the whole KV pair?
+        // "exact byte span of the raw value in the original source evidence" -> The definition in `ParsedField` I added says "raw value".
+        let abs_val_start = base_offset + value_start;
+        let abs_val_end = base_offset + value_end;
+
+        let span = Span::new(abs_val_start, abs_val_end).unwrap();
+        fields.push(ParsedField::new(key, value, span));
     }
 
     Ok(fields)

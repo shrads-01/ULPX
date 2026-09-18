@@ -83,9 +83,12 @@ impl Parser for SyslogParser {
     }
 
     fn parse(&self, record: &FramedRecord) -> Result<ParserResult, ParserError> {
-        let text = std::str::from_utf8(record.as_bytes())
+        use crate::parser::Span;
+
+        let full_text = std::str::from_utf8(record.as_bytes())
             .map_err(|e| ParserError::Malformed(format!("invalid UTF-8: {e}")))?;
-        let text = text.trim();
+        let text_start = full_text.find(|c: char| !c.is_whitespace()).unwrap_or(0);
+        let text = full_text.trim();
 
         if text.is_empty() {
             return Err(ParserError::Unsupported);
@@ -93,6 +96,15 @@ impl Parser for SyslogParser {
 
         let mut pos = 0usize;
         let mut fields = Vec::new();
+
+        let extract_field = |name: &str, start_idx: usize, end_idx: usize| {
+            let slice = &text[start_idx..end_idx];
+            let trimmed = slice.trim();
+            let trim_start = slice.find(|c: char| !c.is_whitespace()).unwrap_or(0);
+            let abs_start = text_start + start_idx + trim_start;
+            let abs_end = abs_start + trimmed.len();
+            ParsedField::new(name, trimmed, Span::new(abs_start, abs_end).unwrap())
+        };
 
         // ── Optional <priority> ────────────────────────────────────────────
         if text.starts_with('<') {
@@ -103,12 +115,29 @@ impl Parser for SyslogParser {
             let pri: u32 = pri_str.parse().map_err(|_| {
                 ParserError::Malformed(format!("non-numeric priority: '{pri_str}'"))
             })?;
-            fields.push(ParsedField::new("syslog.priority", pri_str));
-            fields.push(ParsedField::new("syslog.facility", (pri >> 3).to_string()));
-            fields.push(ParsedField::new("syslog.severity", (pri & 7).to_string()));
+
+            let pri_field = extract_field("syslog.priority", 1, close);
+            // Derived fields shouldn't technically have spans pointing to the raw string if they are fundamentally different,
+            // but for simple derived integer strings from the exact same priority token, reusing the priority span is acceptable.
+            // A more exact provenance would record the transform. We will reuse the priority span.
+            let fac_span = pri_field.span;
+            let sev_span = pri_field.span;
+
+            fields.push(pri_field);
+            fields.push(ParsedField::new(
+                "syslog.facility",
+                (pri >> 3).to_string(),
+                fac_span,
+            ));
+            fields.push(ParsedField::new(
+                "syslog.severity",
+                (pri & 7).to_string(),
+                sev_span,
+            ));
             pos = close + 1;
         }
 
+        let rest_offset = pos + text[pos..].find(|c: char| !c.is_whitespace()).unwrap_or(0);
         let rest = text[pos..].trim_start();
 
         // Detect RFC 5424 (VERSION field immediately after priority).
@@ -125,26 +154,61 @@ impl Parser for SyslogParser {
                 "could not find RFC 3164 timestamp".to_owned(),
             ));
         }
-        let timestamp = &rest[..ts_end];
-        fields.push(ParsedField::new("syslog.timestamp", timestamp.trim()));
-        let rest = rest[ts_end..].trim_start();
+
+        fields.push(extract_field(
+            "syslog.timestamp",
+            rest_offset,
+            rest_offset + ts_end,
+        ));
+
+        let after_ts_offset = rest_offset + ts_end;
+        let rest2_offset = after_ts_offset
+            + text[after_ts_offset..]
+                .find(|c: char| !c.is_whitespace())
+                .unwrap_or(0);
+        let rest2 = text[after_ts_offset..].trim_start();
 
         // ── Hostname ───────────────────────────────────────────────────────
-        let (hostname, rest) = split_first_token(rest)
+        let (hostname, _rest3) = split_first_token(rest2)
             .ok_or_else(|| ParserError::Malformed("missing hostname".to_owned()))?;
-        fields.push(ParsedField::new("syslog.hostname", hostname));
-        let rest = rest.trim_start();
+
+        let host_len = hostname.len();
+        fields.push(extract_field(
+            "syslog.hostname",
+            rest2_offset,
+            rest2_offset + host_len,
+        ));
+
+        let after_host_offset = rest2_offset + host_len;
+        let rest3_offset = after_host_offset
+            + text[after_host_offset..]
+                .find(|c: char| !c.is_whitespace())
+                .unwrap_or(0);
+        let rest3 = text[after_host_offset..].trim_start();
 
         // ── Tag (process name, optional PID, terminated by ':') ───────────
-        let colon_pos = rest.find(':').unwrap_or(rest.len());
-        let tag = &rest[..colon_pos];
-        fields.push(ParsedField::new("syslog.tag", tag.trim()));
-        let message = if colon_pos + 1 < rest.len() {
-            rest[colon_pos + 1..].trim_start()
+        let colon_pos = rest3.find(':').unwrap_or(rest3.len());
+        fields.push(extract_field(
+            "syslog.tag",
+            rest3_offset,
+            rest3_offset + colon_pos,
+        ));
+
+        let message_offset = if colon_pos + 1 < rest3.len() {
+            let after_colon = rest3_offset + colon_pos + 1;
+            after_colon
+                + text[after_colon..]
+                    .find(|c: char| !c.is_whitespace())
+                    .unwrap_or(0)
         } else {
-            ""
+            text.len()
         };
-        fields.push(ParsedField::new("syslog.message", message));
+
+        if message_offset < text.len() {
+            fields.push(extract_field("syslog.message", message_offset, text.len()));
+        } else {
+            fields.push(extract_field("syslog.message", text.len(), text.len()));
+        }
 
         Ok(ParserResult {
             fields,

@@ -1,4 +1,4 @@
-﻿use crate::context::MappingContext;
+use crate::context::MappingContext;
 use crate::engine::SemanticMapper;
 use crate::mappers::as_string;
 use crate::model::{AbstentionReason, CanonicalEvent, Confidence, Severity};
@@ -67,8 +67,9 @@ impl SemanticMapper for CefMapper {
             &["cef.severity"],
             "cef-sev-1",
             Confidence::Certain,
-            |val| {
-                let s = as_string(val)?;
+            |val, transforms| {
+                let s = as_string(val, transforms)?;
+                transforms.push("cef_severity_to_canonical".to_string());
                 if let Ok(num) = s.parse::<u8>() {
                     match num {
                         0..=3 => Ok(Severity::Info),
@@ -79,6 +80,7 @@ impl SemanticMapper for CefMapper {
                     }
                 } else {
                     let lower = s.to_lowercase();
+                    transforms.push("lowercase".to_string());
                     match lower.as_str() {
                         "low" => Ok(Severity::Info),
                         "medium" => Ok(Severity::Warning),

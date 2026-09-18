@@ -1,4 +1,4 @@
-﻿use crate::context::MappingContext;
+use crate::context::MappingContext;
 use crate::engine::SemanticMapper;
 use crate::mappers::as_string;
 use crate::model::{AbstentionReason, CanonicalEvent, Confidence, Severity};
@@ -71,8 +71,9 @@ impl SemanticMapper for JsonHeuristicMapper {
             &["level", "severity", "log_level"],
             "json-heur-sev-1",
             Confidence::Heuristic,
-            |val| {
-                let s = as_string(val)?;
+            |val, transforms| {
+                let s = as_string(val, transforms)?;
+                transforms.push("lowercase".to_string());
                 let lower = s.to_lowercase();
                 match lower.as_str() {
                     "trace" => Ok(Severity::Trace),

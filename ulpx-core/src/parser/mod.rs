@@ -95,6 +95,31 @@ pub enum LifecycleStage {
 }
 
 // ─────────────────────────────────────────────
+// Span
+// ─────────────────────────────────────────────
+
+/// A contiguous byte range in the original source evidence.
+///
+/// Offsets are byte indices into the original parsed buffer. The range is
+/// half-open `[start, end)`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Span {
+    pub start: usize,
+    pub end: usize,
+}
+
+impl Span {
+    /// Creates a new Span. Returns `None` if `start > end`.
+    pub fn new(start: usize, end: usize) -> Option<Self> {
+        if start > end {
+            None
+        } else {
+            Some(Span { start, end })
+        }
+    }
+}
+
+// ─────────────────────────────────────────────
 // ParsedField
 // ─────────────────────────────────────────────
 
@@ -108,13 +133,16 @@ pub struct ParsedField {
     pub name: String,
     /// Raw string value as extracted from the source evidence.
     pub raw_value: String,
+    /// Exact byte span of the raw value in the original source evidence.
+    pub span: Span,
 }
 
 impl ParsedField {
-    pub fn new(name: impl Into<String>, raw_value: impl Into<String>) -> Self {
+    pub fn new(name: impl Into<String>, raw_value: impl Into<String>, span: Span) -> Self {
         ParsedField {
             name: name.into(),
             raw_value: raw_value.into(),
+            span,
         }
     }
 }

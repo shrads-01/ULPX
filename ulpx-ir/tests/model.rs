@@ -1,6 +1,6 @@
 use ulpx_core::event::EventId;
 use ulpx_core::parser::ParserVersion;
-use ulpx_ir::model::{EventIr, IrValue};
+use ulpx_ir::model::{EventIr, IrType, IrValue};
 
 #[test]
 fn construct_and_validate_ir() {
@@ -24,11 +24,16 @@ fn construct_and_validate_ir() {
     assert!(ir.fields.is_empty());
 
     // Test mutability / structure
-    ir.fields
-        .insert("test_key".to_string(), IrValue::String("val".to_string()));
+    ir.fields.insert(
+        "test_key".to_string(),
+        IrValue {
+            ty: IrType::String("val".to_string()),
+            span: None,
+        },
+    );
     assert_eq!(
-        ir.fields.get("test_key"),
-        Some(&IrValue::String("val".to_string()))
+        ir.fields.get("test_key").map(|v| &v.ty),
+        Some(&IrType::String("val".to_string()))
     );
 }
 
@@ -44,9 +49,27 @@ fn fields_iterate_deterministically() {
         },
         vec![],
     );
-    ir.fields.insert("z".to_string(), IrValue::Null);
-    ir.fields.insert("a".to_string(), IrValue::Null);
-    ir.fields.insert("m".to_string(), IrValue::Null);
+    ir.fields.insert(
+        "z".to_string(),
+        IrValue {
+            ty: IrType::Null,
+            span: None,
+        },
+    );
+    ir.fields.insert(
+        "a".to_string(),
+        IrValue {
+            ty: IrType::Null,
+            span: None,
+        },
+    );
+    ir.fields.insert(
+        "m".to_string(),
+        IrValue {
+            ty: IrType::Null,
+            span: None,
+        },
+    );
 
     // BTreeMap guarantees alphabetical iteration
     let keys: Vec<&String> = ir.fields.keys().collect();

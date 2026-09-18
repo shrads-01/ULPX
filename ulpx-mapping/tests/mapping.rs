@@ -1,14 +1,20 @@
-﻿use std::collections::BTreeMap;
+use std::collections::BTreeMap;
 use ulpx_core::event::EventId;
 use ulpx_core::parser::ParserVersion;
-use ulpx_ir::model::{EventIr, IrValue};
+use ulpx_ir::model::EventIr;
 use ulpx_mapping::engine::MappingEngine;
 use ulpx_mapping::model::{AbstentionReason, Confidence, Severity};
 
 fn dummy_ir(parser_id: &str, fields_input: &[(&str, &str)]) -> EventIr {
     let mut fields = BTreeMap::new();
     for (k, v) in fields_input {
-        fields.insert(k.to_string(), IrValue::String(v.to_string()));
+        fields.insert(
+            k.to_string(),
+            ulpx_ir::model::IrValue {
+                ty: ulpx_ir::model::IrType::String(v.to_string()),
+                span: None,
+            },
+        );
     }
 
     let mut ir = EventIr::new(

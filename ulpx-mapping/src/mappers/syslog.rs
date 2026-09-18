@@ -1,4 +1,4 @@
-﻿use crate::context::MappingContext;
+use crate::context::MappingContext;
 use crate::engine::SemanticMapper;
 use crate::mappers::as_string;
 use crate::model::{AbstentionReason, CanonicalEvent, Confidence, Severity};
@@ -43,8 +43,9 @@ impl SemanticMapper for SyslogMapper {
             &["syslog.severity"],
             "syslog-sev-1",
             Confidence::Certain,
-            |val| {
-                let s = as_string(val)?;
+            |val, transforms| {
+                let s = as_string(val, transforms)?;
+                transforms.push("syslog_priority_to_severity".to_string());
                 if let Ok(num) = s.parse::<u8>() {
                     match num {
                         0 => Ok(Severity::Emergency),

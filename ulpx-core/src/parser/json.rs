@@ -65,16 +65,17 @@ impl Parser for JsonParser {
     }
 
     fn parse(&self, record: &FramedRecord) -> Result<ParserResult, ParserError> {
-        let text = std::str::from_utf8(record.as_bytes())
+        let full_text = std::str::from_utf8(record.as_bytes())
             .map_err(|e| ParserError::Malformed(format!("invalid UTF-8: {e}")))?;
 
-        let text = text.trim();
+        let text = full_text.trim();
 
         if !text.starts_with('{') || !text.ends_with('}') {
             return Err(ParserError::Unsupported);
         }
 
-        let fields = parse_flat_object(text)?;
+        let inner_start = (text.as_ptr() as usize - full_text.as_ptr() as usize) + 1;
+        let fields = parse_flat_object(text, inner_start)?;
 
         Ok(ParserResult {
             fields,
@@ -89,7 +90,9 @@ impl Parser for JsonParser {
 ///
 /// This is a hand-rolled scanner and does not use any external JSON library.
 /// It handles the subset described in the module documentation.
-fn parse_flat_object(text: &str) -> Result<Vec<ParsedField>, ParserError> {
+fn parse_flat_object(text: &str, global_offset: usize) -> Result<Vec<ParsedField>, ParserError> {
+    use crate::parser::Span;
+
     // Strip outer `{` and `}`.
     let inner = &text[1..text.len() - 1];
     let mut fields = Vec::new();
@@ -108,7 +111,7 @@ fn parse_flat_object(text: &str) -> Result<Vec<ParsedField>, ParserError> {
         if chars.peek().map(|(_, c)| *c) != Some('"') {
             return Err(ParserError::Malformed("expected '\"' for key".to_owned()));
         }
-        let key = read_json_string(inner, &mut chars)?;
+        let (key, _) = read_json_string(inner, &mut chars, global_offset)?;
 
         // Skip whitespace, then expect ':'.
         skip_whitespace(&mut chars);
@@ -119,14 +122,17 @@ fn parse_flat_object(text: &str) -> Result<Vec<ParsedField>, ParserError> {
 
         // Skip whitespace, then read the value.
         skip_whitespace(&mut chars);
-        let value = read_json_value(inner, &mut chars)?;
+        let (value, span) = read_json_value(inner, &mut chars, global_offset)?;
 
         if fields.len() >= MAX_FIELDS {
             return Err(ParserError::ResourceLimit(format!(
                 "exceeded maximum field count of {MAX_FIELDS}"
             )));
         }
-        fields.push(ParsedField::new(key, value));
+
+        let valid_span = Span::new(span.start, span.end)
+            .ok_or_else(|| ParserError::Malformed("invalid span generated".to_owned()))?;
+        fields.push(ParsedField::new(key, value, valid_span));
 
         // Skip whitespace, then expect ',' or end.
         skip_whitespace(&mut chars);
@@ -156,22 +162,30 @@ fn skip_whitespace(chars: &mut CharIter<'_>) {
 }
 
 /// Read a JSON string value (including the surrounding `"` delimiters).
-/// Returns the content without the surrounding quotes.
-fn read_json_string(source: &str, chars: &mut CharIter<'_>) -> Result<String, ParserError> {
+/// Returns the content without the surrounding quotes and its global span.
+fn read_json_string(
+    source: &str,
+    chars: &mut CharIter<'_>,
+    global_offset: usize,
+) -> Result<(String, crate::parser::Span), ParserError> {
+    use crate::parser::Span;
+
     // Consume opening '"'.
     let start_idx = match chars.next() {
         Some((idx, '"')) => idx,
         _ => return Err(ParserError::Malformed("expected '\"'".to_owned())),
     };
-    let _ = start_idx;
+
+    let value_start = start_idx + 1;
 
     let mut result = String::new();
     let mut escaped = false;
+    let value_end;
 
     loop {
         match chars.next() {
             None => return Err(ParserError::Malformed("unterminated string".to_owned())),
-            Some((_, c)) => {
+            Some((idx, c)) => {
                 if escaped {
                     // Preserve common escape sequences as-is in raw_value.
                     result.push('\\');
@@ -180,6 +194,7 @@ fn read_json_string(source: &str, chars: &mut CharIter<'_>) -> Result<String, Pa
                 } else if c == '\\' {
                     escaped = true;
                 } else if c == '"' {
+                    value_end = idx;
                     break;
                 } else {
                     result.push(c);
@@ -188,26 +203,33 @@ fn read_json_string(source: &str, chars: &mut CharIter<'_>) -> Result<String, Pa
         }
     }
     let _ = source;
-    Ok(result)
+    let span = Span::new(global_offset + value_start, global_offset + value_end).unwrap();
+    Ok((result, span))
 }
 
 /// Read a JSON value: string, number, boolean, null, or a nested object/array
 /// (returned as raw text).
-fn read_json_value(source: &str, chars: &mut CharIter<'_>) -> Result<String, ParserError> {
+fn read_json_value(
+    source: &str,
+    chars: &mut CharIter<'_>,
+    global_offset: usize,
+) -> Result<(String, crate::parser::Span), ParserError> {
     match chars.peek() {
         Some((_, '"')) => {
             // String value — return the content without quotes.
-            read_json_string(source, chars)
+            read_json_string(source, chars, global_offset)
         }
         Some((_, '{')) | Some((_, '[')) => {
             // Nested object or array — capture raw text.
-            read_balanced(chars)
+            read_balanced(source, chars, global_offset)
         }
         Some((_, 't')) | Some((_, 'f')) | Some((_, 'n')) => {
             // true / false / null
-            read_bare_word(chars)
+            read_bare_word(source, chars, global_offset)
         }
-        Some((_, c)) if c.is_ascii_digit() || *c == '-' => read_number(chars),
+        Some((_, c)) if c.is_ascii_digit() || *c == '-' => {
+            read_number(source, chars, global_offset)
+        }
         Some((_, c)) => {
             let bad = *c;
             Err(ParserError::Malformed(format!(
@@ -221,14 +243,21 @@ fn read_json_value(source: &str, chars: &mut CharIter<'_>) -> Result<String, Par
 }
 
 /// Capture a balanced `{…}` or `[…]` region as raw text.
-fn read_balanced(chars: &mut CharIter<'_>) -> Result<String, ParserError> {
-    let open = chars.next().map(|(_, c)| c).unwrap();
+fn read_balanced(
+    _source: &str,
+    chars: &mut CharIter<'_>,
+    global_offset: usize,
+) -> Result<(String, crate::parser::Span), ParserError> {
+    use crate::parser::Span;
+
+    let (start_idx, open) = chars.next().unwrap();
     let close = if open == '{' { '}' } else { ']' };
     let mut buf = String::new();
     buf.push(open);
     let mut depth = 1usize;
     let mut in_string = false;
     let mut escaped = false;
+    let mut end_idx;
 
     loop {
         match chars.next() {
@@ -237,8 +266,9 @@ fn read_balanced(chars: &mut CharIter<'_>) -> Result<String, ParserError> {
                     "unterminated nested structure starting with '{open}'"
                 )))
             }
-            Some((_, c)) => {
+            Some((idx, c)) => {
                 buf.push(c);
+                end_idx = idx + c.len_utf8();
                 if escaped {
                     escaped = false;
                 } else if in_string {
@@ -254,7 +284,10 @@ fn read_balanced(chars: &mut CharIter<'_>) -> Result<String, ParserError> {
                         '}' | ']' if c == close => {
                             depth -= 1;
                             if depth == 0 {
-                                return Ok(buf);
+                                let span =
+                                    Span::new(global_offset + start_idx, global_offset + end_idx)
+                                        .unwrap();
+                                return Ok((buf, span));
                             }
                         }
                         _ => {}
@@ -266,25 +299,53 @@ fn read_balanced(chars: &mut CharIter<'_>) -> Result<String, ParserError> {
 }
 
 /// Read a bare word (true, false, null).
-fn read_bare_word(chars: &mut CharIter<'_>) -> Result<String, ParserError> {
+fn read_bare_word(
+    _source: &str,
+    chars: &mut CharIter<'_>,
+    global_offset: usize,
+) -> Result<(String, crate::parser::Span), ParserError> {
+    use crate::parser::Span;
+
     let mut word = String::new();
-    while chars.peek().map(|(_, c)| c.is_alphabetic()) == Some(true) {
-        word.push(chars.next().unwrap().1);
+    let start_idx = chars.peek().unwrap().0;
+    let mut end_idx = start_idx;
+
+    while let Some(&(idx, c)) = chars.peek() {
+        if c.is_alphabetic() {
+            word.push(c);
+            end_idx = idx + c.len_utf8();
+            chars.next();
+        } else {
+            break;
+        }
     }
-    Ok(word)
+    let span = Span::new(global_offset + start_idx, global_offset + end_idx).unwrap();
+    Ok((word, span))
 }
 
 /// Read a JSON number.
-fn read_number(chars: &mut CharIter<'_>) -> Result<String, ParserError> {
+fn read_number(
+    _source: &str,
+    chars: &mut CharIter<'_>,
+    global_offset: usize,
+) -> Result<(String, crate::parser::Span), ParserError> {
+    use crate::parser::Span;
+
     let mut num = String::new();
-    while chars
-        .peek()
-        .map(|(_, c)| matches!(c, '0'..='9' | '-' | '+' | '.' | 'e' | 'E'))
-        == Some(true)
-    {
-        num.push(chars.next().unwrap().1);
+    let start_idx = chars.peek().unwrap().0;
+    let mut end_idx = start_idx;
+
+    while let Some(&(idx, c)) = chars.peek() {
+        if matches!(c, '0'..='9' | '-' | '+' | '.' | 'e' | 'E') {
+            num.push(c);
+            end_idx = idx + c.len_utf8();
+            chars.next();
+        } else {
+            break;
+        }
     }
-    Ok(num)
+    let span = Span::new(global_offset + start_idx, global_offset + end_idx).unwrap();
+    Ok((num, span))
 }
 
 #[cfg(test)]

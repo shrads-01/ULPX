@@ -1,5 +1,5 @@
 use ulpx_core::framing::FramedRecord;
-use ulpx_core::parser::{LifecycleStage, ParsedField, ParserError, ParserRegistry, ParserVersion};
+use ulpx_core::parser::{LifecycleStage, ParserError, ParserRegistry, ParserVersion};
 use ulpx_infer::engine::InferenceEngine;
 use ulpx_infer::model::{Evidence, FormatCandidate, InferenceConfidence};
 
@@ -133,13 +133,11 @@ fn parses_valid_input_and_preserves_bytes() {
 
     let res = parser.parse(&rec).unwrap();
     assert_eq!(res.raw_bytes, input);
-    assert_eq!(
-        res.fields,
-        vec![
-            ParsedField::new("col1", "val1"),
-            ParsedField::new("col2", "val2")
-        ]
-    );
+    assert_eq!(res.fields.len(), 2);
+    assert_eq!(res.fields[0].name, "col1");
+    assert_eq!(res.fields[0].raw_value, "val1");
+    assert_eq!(res.fields[1].name, "col2");
+    assert_eq!(res.fields[1].raw_value, "val2");
 }
 
 #[test]
@@ -247,10 +245,11 @@ fn registry_integration_and_precedence() {
     // Should be parsed by kv-2 since kv-1 expects `:` but it's not present (will return Unsupported)
     let res = reg.parse_first(&record(b"a=1 b=2")).unwrap();
     assert_eq!(res.parser_id, "kv-2");
-    assert_eq!(
-        res.fields,
-        vec![ParsedField::new("a", "1"), ParsedField::new("b", "2"),]
-    );
+    assert_eq!(res.fields.len(), 2);
+    assert_eq!(res.fields[0].name, "a");
+    assert_eq!(res.fields[0].raw_value, "1");
+    assert_eq!(res.fields[1].name, "b");
+    assert_eq!(res.fields[1].raw_value, "2");
 
     // Should be parsed by kv-1
     let res = reg.parse_first(&record(b"a:1,b:2")).unwrap();
@@ -298,7 +297,10 @@ fn inference_to_onboarding_pipeline() {
     assert_eq!(parse_res.parser_id, "generic-kv-space-eq");
     assert_eq!(parse_res.raw_bytes, input);
     assert_eq!(parse_res.fields.len(), 3);
-    assert_eq!(parse_res.fields[0], ParsedField::new("src_ip", "1.1.1.1"));
-    assert_eq!(parse_res.fields[1], ParsedField::new("dst_ip", "2.2.2.2"));
-    assert_eq!(parse_res.fields[2], ParsedField::new("action", "allow"));
+    assert_eq!(parse_res.fields[0].name, "src_ip");
+    assert_eq!(parse_res.fields[0].raw_value, "1.1.1.1");
+    assert_eq!(parse_res.fields[1].name, "dst_ip");
+    assert_eq!(parse_res.fields[1].raw_value, "2.2.2.2");
+    assert_eq!(parse_res.fields[2].name, "action");
+    assert_eq!(parse_res.fields[2].raw_value, "allow");
 }

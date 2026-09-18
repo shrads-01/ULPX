@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use ulpx_core::event::EventId;
-use ulpx_core::parser::ParserVersion;
+use ulpx_core::parser::{ParserVersion, Span};
 use ulpx_ir::model::IrValue;
 
 /// Standardized severity levels.
@@ -46,6 +46,10 @@ pub enum AbstentionReason {
 pub struct FieldProvenance {
     /// The exact original field name in the IR.
     pub source_field: String,
+    /// The exact byte span from the raw evidence.
+    pub span: Option<Span>,
+    /// Any transformations applied during mapping (e.g. "lowercase", "type-coerce").
+    pub transformations: Vec<String>,
     /// The rule that executed the mapping.
     pub rule_id: String,
     /// The confidence of this mapping.

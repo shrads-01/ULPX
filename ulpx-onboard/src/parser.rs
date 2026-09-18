@@ -50,62 +50,98 @@ impl Parser for GeneratedParser {
                 pair_separator,
                 kv_separator,
             } => {
-                // If there is no kv_separator anywhere in the string, it's not our format
                 if !text.contains(*kv_separator) {
                     return Err(ParserError::Unsupported);
                 }
 
-                for pair in text.split(*pair_separator) {
-                    let pair = pair.trim();
-                    if pair.is_empty() {
-                        continue;
-                    }
+                let mut start = 0;
+                while start < text.len() {
+                    let next_idx = text[start..]
+                        .find(*pair_separator)
+                        .map(|i| start + i)
+                        .unwrap_or(text.len());
+                    let pair_slice = &text[start..next_idx];
 
-                    if let Some(idx) = pair.find(*kv_separator) {
-                        let k = pair[..idx].trim();
-                        let v = pair[idx + 1..].trim();
-                        if k.is_empty() {
+                    let pair_trim_start =
+                        pair_slice.find(|c: char| !c.is_whitespace()).unwrap_or(0);
+                    let pair = pair_slice.trim();
+                    let pair_abs_start = start + pair_trim_start;
+
+                    if !pair.is_empty() {
+                        if let Some(idx) = pair.find(*kv_separator) {
+                            let k = pair[..idx].trim();
+                            let v_slice = &pair[idx + kv_separator.len_utf8()..];
+                            let v_trim_start =
+                                v_slice.find(|c: char| !c.is_whitespace()).unwrap_or(0);
+                            let v = v_slice.trim();
+
+                            if k.is_empty() {
+                                return Err(ParserError::Malformed(format!(
+                                    "empty key in pair '{}'",
+                                    pair
+                                )));
+                            }
+
+                            let abs_v_start =
+                                pair_abs_start + idx + kv_separator.len_utf8() + v_trim_start;
+                            let abs_v_end = abs_v_start + v.len();
+                            fields.push(ParsedField::new(
+                                k,
+                                v,
+                                ulpx_core::parser::Span::new(abs_v_start, abs_v_end).unwrap(),
+                            ));
+                        } else {
                             return Err(ParserError::Malformed(format!(
-                                "empty key in pair '{}'",
-                                pair
+                                "missing kv separator '{}' in pair '{}'",
+                                kv_separator, pair
                             )));
                         }
-                        fields.push(ParsedField::new(k, v));
-                    } else {
-                        // We expected KV pairs, but found a token with no separator.
-                        return Err(ParserError::Malformed(format!(
-                            "missing kv separator '{}' in pair '{}'",
-                            kv_separator, pair
-                        )));
+
+                        if fields.len() > 1000 {
+                            return Err(ParserError::ResourceLimit(
+                                "exceeded maximum of 1000 extracted fields".into(),
+                            ));
+                        }
                     }
 
-                    if fields.len() > 1000 {
-                        return Err(ParserError::ResourceLimit(
-                            "exceeded maximum of 1000 extracted fields".into(),
-                        ));
-                    }
+                    start = next_idx + pair_separator.len_utf8();
                 }
-
-                // If we ended up with no fields despite having the separator (e.g. malformed '='), unsupported/malformed.
-                // We let it pass as empty list if valid, though typically KV has fields.
             }
             ExtractionSpec::Delimiter {
                 separator,
                 field_names,
             } => {
-                // If the separator doesn't exist and we expect multiple fields, maybe unsupported?
-                // For simplicity, we just parse it. But if it's completely alien, let's check
-                // if at least one separator exists (unless it's a 1-field format, which is rare).
                 if field_names.len() > 1 && !text.contains(*separator) {
                     return Err(ParserError::Unsupported);
                 }
 
-                for (i, val) in text.split(*separator).enumerate() {
-                    if i < field_names.len() {
-                        let k = field_names[i].trim();
-                        let v = val.trim();
-                        fields.push(ParsedField::new(k, v));
+                let mut start = 0;
+                let mut i = 0;
+                while start <= text.len() && i < field_names.len() {
+                    let next_idx = text[start..]
+                        .find(*separator)
+                        .map(|idx| start + idx)
+                        .unwrap_or(text.len());
+                    let val_slice = &text[start..next_idx];
+
+                    let trim_start = val_slice.find(|c: char| !c.is_whitespace()).unwrap_or(0);
+                    let v = val_slice.trim();
+
+                    let abs_start = start + trim_start;
+                    let abs_end = abs_start + v.len();
+
+                    let k = field_names[i].trim();
+                    fields.push(ParsedField::new(
+                        k,
+                        v,
+                        ulpx_core::parser::Span::new(abs_start, abs_end).unwrap(),
+                    ));
+
+                    if next_idx == text.len() {
+                        break;
                     }
+                    start = next_idx + separator.len_utf8();
+                    i += 1;
                 }
 
                 if fields.len() > 1000 {

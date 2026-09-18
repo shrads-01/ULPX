@@ -40,7 +40,7 @@ impl<'a> MappingContext<'a> {
         transform: F,
     ) -> Option<CanonicalField<T>>
     where
-        F: FnOnce(&IrValue) -> Result<T, AbstentionReason>,
+        F: FnOnce(&IrValue, &mut Vec<String>) -> Result<T, AbstentionReason>,
     {
         let mut found = Vec::new();
         for &src in source_names {
@@ -65,16 +65,20 @@ impl<'a> MappingContext<'a> {
         }
 
         let (src_name, val) = &found[0];
+        let mut transformations = Vec::new();
 
-        match transform(val) {
+        match transform(val, &mut transformations) {
             Ok(mapped_val) => {
                 // Mapping successful. Consume the field so it doesn't stay in unmapped.
+                let span = val.span;
                 self.unmapped.remove(*src_name);
 
                 Some(CanonicalField {
                     value: mapped_val,
                     provenance: FieldProvenance {
                         source_field: src_name.to_string(),
+                        span,
+                        transformations,
                         rule_id: rule_id.to_string(),
                         confidence,
                         parser_id: self.ir.parser_id.clone(),

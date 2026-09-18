@@ -1,12 +1,16 @@
 use ulpx_core::event::EventId;
-use ulpx_core::parser::{ParsedField, ParserResult, ParserVersion};
+use ulpx_core::parser::{ParsedField, ParserResult, ParserVersion, Span};
 use ulpx_ir::convert::{
     CefConverter, CompositeConverter, IrConverter, JsonConverter, SyslogConverter,
 };
-use ulpx_ir::model::IrValue;
+use ulpx_ir::model::IrType;
 
 fn dummy_event_id() -> EventId {
     EventId::new("test-event-id").unwrap()
+}
+
+fn dummy_span() -> Span {
+    Span::new(0, 0).unwrap()
 }
 
 #[test]
@@ -20,11 +24,11 @@ fn syslog_converter_basic() {
         },
         raw_bytes: b"<34>Jan  5 12:34:56 myhost myapp: hello world".to_vec(),
         fields: vec![
-            ParsedField::new("syslog.priority", "34"),
-            ParsedField::new("syslog.severity", "2"),
-            ParsedField::new("syslog.timestamp", "Jan  5 12:34:56"),
-            ParsedField::new("syslog.hostname", "myhost"),
-            ParsedField::new("syslog.message", "hello world"),
+            ParsedField::new("syslog.priority", "34", dummy_span()),
+            ParsedField::new("syslog.severity", "2", dummy_span()),
+            ParsedField::new("syslog.timestamp", "Jan  5 12:34:56", dummy_span()),
+            ParsedField::new("syslog.hostname", "myhost", dummy_span()),
+            ParsedField::new("syslog.message", "hello world", dummy_span()),
         ],
     };
 
@@ -34,16 +38,16 @@ fn syslog_converter_basic() {
 
     // Ensure all original fields are retained losslessly
     assert_eq!(
-        ir.fields.get("syslog.message"),
-        Some(&IrValue::String("hello world".to_string()))
+        ir.fields.get("syslog.message").map(|v| &v.ty),
+        Some(&IrType::String("hello world".to_string()))
     );
     assert_eq!(
-        ir.fields.get("syslog.severity"),
-        Some(&IrValue::String("2".to_string()))
+        ir.fields.get("syslog.severity").map(|v| &v.ty),
+        Some(&IrType::String("2".to_string()))
     );
     assert_eq!(
-        ir.fields.get("syslog.timestamp"),
-        Some(&IrValue::String("Jan  5 12:34:56".to_string()))
+        ir.fields.get("syslog.timestamp").map(|v| &v.ty),
+        Some(&IrType::String("Jan  5 12:34:56".to_string()))
     );
 }
 
@@ -58,9 +62,9 @@ fn cef_converter_basic() {
         },
         raw_bytes: b"CEF:0|V|P|1.0|200|Test|3|src=1.2.3.4".to_vec(),
         fields: vec![
-            ParsedField::new("cef.severity", "3"),
-            ParsedField::new("src", "1.2.3.4"),
-            ParsedField::new("cef.device_vendor", "V"),
+            ParsedField::new("cef.severity", "3", dummy_span()),
+            ParsedField::new("src", "1.2.3.4", dummy_span()),
+            ParsedField::new("cef.device_vendor", "V", dummy_span()),
         ],
     };
 
@@ -70,12 +74,12 @@ fn cef_converter_basic() {
 
     // Fields preserved
     assert_eq!(
-        ir.fields.get("cef.device_vendor"),
-        Some(&IrValue::String("V".to_string()))
+        ir.fields.get("cef.device_vendor").map(|v| &v.ty),
+        Some(&IrType::String("V".to_string()))
     );
     assert_eq!(
-        ir.fields.get("src"),
-        Some(&IrValue::String("1.2.3.4".to_string()))
+        ir.fields.get("src").map(|v| &v.ty),
+        Some(&IrType::String("1.2.3.4".to_string()))
     );
 }
 
@@ -90,11 +94,11 @@ fn json_converter_basic() {
         },
         raw_bytes: br#"{"timestamp":"2023","level":"error","count":42,"active":true}"#.to_vec(),
         fields: vec![
-            ParsedField::new("timestamp", "2023"),
-            ParsedField::new("level", "error"),
-            ParsedField::new("count", "042"), // Leading zero
-            ParsedField::new("active", "true"),
-            ParsedField::new("missing", "null"),
+            ParsedField::new("timestamp", "2023", dummy_span()),
+            ParsedField::new("level", "error", dummy_span()),
+            ParsedField::new("count", "042", dummy_span()), // Leading zero
+            ParsedField::new("active", "true", dummy_span()),
+            ParsedField::new("missing", "null", dummy_span()),
         ],
     };
 
@@ -104,12 +108,15 @@ fn json_converter_basic() {
 
     // "042" stays "042" as a string to prevent silent type corruption
     assert_eq!(
-        ir.fields.get("count"),
-        Some(&IrValue::String("042".to_string()))
+        ir.fields.get("count").map(|v| &v.ty),
+        Some(&IrType::String("042".to_string()))
     );
     // true and null are safely mapped
-    assert_eq!(ir.fields.get("active"), Some(&IrValue::Boolean(true)));
-    assert_eq!(ir.fields.get("missing"), Some(&IrValue::Null));
+    assert_eq!(
+        ir.fields.get("active").map(|v| &v.ty),
+        Some(&IrType::Boolean(true))
+    );
+    assert_eq!(ir.fields.get("missing").map(|v| &v.ty), Some(&IrType::Null));
 }
 
 #[test]
@@ -122,7 +129,7 @@ fn composite_converter_matches_correctly() {
             patch: 0,
         },
         raw_bytes: br#"{"host":"srv1"}"#.to_vec(),
-        fields: vec![ParsedField::new("host", "srv1")],
+        fields: vec![ParsedField::new("host", "srv1", dummy_span())],
     };
 
     let id = dummy_event_id();

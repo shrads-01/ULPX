@@ -1,6 +1,6 @@
 //! Converters from ParserResult to EventIr.
 
-use crate::model::{EventIr, IrValue};
+use crate::model::{EventIr, IrType, IrValue};
 use ulpx_core::event::EventId;
 use ulpx_core::parser::ParserResult;
 
@@ -30,8 +30,13 @@ impl IrConverter for SyslogConverter {
         );
 
         for field in &result.fields {
-            ir.fields
-                .insert(field.name.clone(), IrValue::String(field.raw_value.clone()));
+            ir.fields.insert(
+                field.name.clone(),
+                IrValue {
+                    ty: IrType::String(field.raw_value.clone()),
+                    span: Some(field.span),
+                },
+            );
         }
 
         Some(ir)
@@ -55,8 +60,13 @@ impl IrConverter for CefConverter {
         );
 
         for field in &result.fields {
-            ir.fields
-                .insert(field.name.clone(), IrValue::String(field.raw_value.clone()));
+            ir.fields.insert(
+                field.name.clone(),
+                IrValue {
+                    ty: IrType::String(field.raw_value.clone()),
+                    span: Some(field.span),
+                },
+            );
         }
 
         Some(ir)
@@ -80,13 +90,46 @@ impl IrConverter for JsonConverter {
         );
 
         for field in &result.fields {
-            let value = match field.raw_value.as_str() {
-                "null" => IrValue::Null,
-                "true" => IrValue::Boolean(true),
-                "false" => IrValue::Boolean(false),
-                _ => IrValue::String(field.raw_value.clone()),
+            let ty = match field.raw_value.as_str() {
+                "null" => IrType::Null,
+                "true" => IrType::Boolean(true),
+                "false" => IrType::Boolean(false),
+                _ => IrType::String(field.raw_value.clone()),
             };
-            ir.fields.insert(field.name.clone(), value);
+            ir.fields.insert(
+                field.name.clone(),
+                IrValue {
+                    ty,
+                    span: Some(field.span),
+                },
+            );
+        }
+
+        Some(ir)
+    }
+}
+
+/// Fallback converter for any parser without special typed rules.
+/// Translates all fields as strings with their original span.
+pub struct FallbackConverter;
+
+impl IrConverter for FallbackConverter {
+    fn convert(&self, event_id: EventId, result: &ParserResult) -> Option<EventIr> {
+        let mut ir = EventIr::new(
+            event_id,
+            result.parser_id.clone(),
+            result.parser_version,
+            result.raw_bytes.clone(),
+        );
+
+        for field in &result.fields {
+            ir.fields.insert(
+                field.name.clone(),
+                IrValue {
+                    ty: IrType::String(field.raw_value.clone()),
+                    span: Some(field.span),
+                },
+            );
         }
 
         Some(ir)
@@ -120,6 +163,7 @@ impl CompositeConverter {
         composite.add(SyslogConverter);
         composite.add(CefConverter);
         composite.add(JsonConverter);
+        composite.add(FallbackConverter); // Must be last
         composite
     }
 }

@@ -2,14 +2,23 @@ use std::collections::BTreeMap;
 use ulpx_core::event::EventId;
 use ulpx_core::parser::ParserVersion;
 
-/// Strongly typed value for un-normalized fields.
+use ulpx_core::parser::Span;
+
+/// Strongly typed value variants for un-normalized fields.
 #[derive(Debug, Clone, PartialEq)]
-pub enum IrValue {
+pub enum IrType {
     String(String),
     Integer(i64),
     Float(f64),
     Boolean(bool),
     Null,
+}
+
+/// A parsed field value bounded with its exact source span.
+#[derive(Debug, Clone, PartialEq)]
+pub struct IrValue {
+    pub ty: IrType,
+    pub span: Option<Span>,
 }
 
 /// The Universal Log Processing Intermediate Representation (ULPX-IR).
