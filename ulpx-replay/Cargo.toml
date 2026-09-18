@@ -1,0 +1,10 @@
+[package]
+name = "ulpx-replay"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ulpx-core = { path = "../ulpx-core" }
+ulpx-ir = { path = "../ulpx-ir" }
+ulpx-infer = { path = "../ulpx-infer" }
+ulpx-mapping = { path = "../ulpx-mapping" }

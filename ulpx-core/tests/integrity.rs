@@ -30,7 +30,7 @@ fn test_3_empty_byte_payload() {
     let event = RawEvent::new(id.clone(), vec![], Source("test".to_string()));
     store.store(event).unwrap();
 
-    let verified = store.verify(&id).unwrap();
+    let verified = ulpx_core::integrity::verify_event(&store, &id).unwrap();
     assert!(verified.is_success());
     let retrieved = store.retrieve(&id).unwrap();
     assert_eq!(
@@ -52,7 +52,7 @@ fn test_4_arbitrary_binary_payload() {
     let event = RawEvent::new(id.clone(), binary_data.clone(), Source("test".to_string()));
     store.store(event).unwrap();
 
-    let verified = store.verify(&id).unwrap();
+    let verified = ulpx_core::integrity::verify_event(&store, &id).unwrap();
     assert!(verified.is_success());
     let retrieved = store.retrieve(&id).unwrap();
     assert_eq!(retrieved.as_bytes(), binary_data);
@@ -83,7 +83,7 @@ fn test_7_verification_succeeds_for_unchanged_evidence() {
     );
     store.store(event).unwrap();
 
-    let verified = store.verify(&id).unwrap();
+    let verified = ulpx_core::integrity::verify_event(&store, &id).unwrap();
     assert!(verified.is_success());
 }
 
@@ -99,7 +99,7 @@ fn test_8_verification_fails_after_evidence_bytes_changed() {
     store.store(event).unwrap();
 
     store.tamper_bytes(&id, b"original bytez".to_vec());
-    let verified = store.verify(&id).unwrap();
+    let verified = ulpx_core::integrity::verify_event(&store, &id).unwrap();
     match verified {
         VerificationResult::HashMismatch { expected, actual } => {
             assert_ne!(expected, actual);
@@ -212,8 +212,12 @@ fn test_13_correct_chain_verifies_successfully() {
         ))
         .unwrap();
 
-    assert!(store.verify(&id1).unwrap().is_success());
-    assert!(store.verify(&id2).unwrap().is_success());
+    assert!(ulpx_core::integrity::verify_event(&store, &id1)
+        .unwrap()
+        .is_success());
+    assert!(ulpx_core::integrity::verify_event(&store, &id2)
+        .unwrap()
+        .is_success());
 }
 
 #[test]
@@ -239,7 +243,7 @@ fn test_14_broken_previous_linkage_is_detected() {
     // Emulate a broken link by directly removing from map
     store.remove_for_testing(&id1);
 
-    let verified = store.verify(&id2).unwrap();
+    let verified = ulpx_core::integrity::verify_event(&store, &id2).unwrap();
     match verified {
         VerificationResult::BrokenLink(missing_id) => {
             assert_eq!(missing_id, id1);
@@ -271,10 +275,12 @@ fn test_15_tampered_content_in_chain_is_detected() {
     store.tamper_bytes(&id1, b"first-tampered".to_vec());
 
     // Verifying id1 directly fails
-    assert!(!store.verify(&id1).unwrap().is_success());
+    assert!(!ulpx_core::integrity::verify_event(&store, &id1)
+        .unwrap()
+        .is_success());
 
     // Verifying the chain from id2 should also detect that id1 is tampered
-    let chain_result = store.verify_chain(&id2).unwrap();
+    let chain_result = ulpx_core::integrity::verify_chain(&store, &id2).unwrap();
     assert!(!chain_result.is_success());
 }
 
@@ -290,7 +296,9 @@ fn test_16_chain_verification_does_not_rely_on_parser_or_ir() {
             Source("t".to_string()),
         ))
         .unwrap();
-    assert!(store.verify(&id1).unwrap().is_success());
+    assert!(ulpx_core::integrity::verify_event(&store, &id1)
+        .unwrap()
+        .is_success());
 }
 
 #[test]
@@ -308,4 +316,49 @@ fn test_17_raw_evidence_remains_recoverable_after_integrity_metadata() {
 
     let retrieved = store.retrieve(&id1).unwrap();
     assert_eq!(retrieved.into_bytes(), original);
+}
+struct CyclicStore {
+    e1: RawEvent,
+    e2: RawEvent,
+}
+impl ulpx_core::storage::EvidenceStore for CyclicStore {
+    fn store(&mut self, _: RawEvent) -> Result<(), ulpx_core::storage::StoreError> {
+        Ok(())
+    }
+    fn retrieve(&self, id: &EventId) -> Result<RawEvent, ulpx_core::storage::StoreError> {
+        if id.as_str() == "evt-18a" {
+            Ok(self.e1.clone())
+        } else if id.as_str() == "evt-18b" {
+            Ok(self.e2.clone())
+        } else {
+            Err(ulpx_core::storage::StoreError::NotFound)
+        }
+    }
+}
+#[test]
+fn test_18_cyclic_previous_link_detected() {
+    let id1 = EventId::new("evt-18a").unwrap();
+    let id2 = EventId::new("evt-18b").unwrap();
+
+    let mut event1 = RawEvent::new(id1.clone(), b"a".to_vec(), Source("t".to_string()));
+    event1.metadata.integrity = Some(ulpx_core::integrity::IntegrityMetadata::new(
+        ulpx_core::integrity::compute_hash(b"a"),
+        Some(id2.clone()),
+    ));
+
+    let mut event2 = RawEvent::new(id2.clone(), b"b".to_vec(), Source("t".to_string()));
+    event2.metadata.integrity = Some(ulpx_core::integrity::IntegrityMetadata::new(
+        ulpx_core::integrity::compute_hash(b"b"),
+        Some(id1.clone()),
+    ));
+
+    let store = CyclicStore {
+        e1: event1,
+        e2: event2,
+    };
+    let res = ulpx_core::integrity::verify_chain(&store, &id1).unwrap();
+    match res {
+        VerificationResult::CyclicLink(_) => {}
+        _ => panic!("Expected CyclicLink"),
+    }
 }

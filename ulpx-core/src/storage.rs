@@ -38,7 +38,7 @@ pub trait EvidenceStore {
     fn retrieve(&self, id: &EventId) -> Result<RawEvent, StoreError>;
 }
 
-use crate::integrity::{compute_hash, IntegrityMetadata, VerificationResult};
+use crate::integrity::{compute_hash, IntegrityMetadata};
 
 /// Simple in‑memory implementation used for the Phase 2 prototype.
 #[derive(Default)]
@@ -54,55 +54,6 @@ impl InMemoryStore {
             map: HashMap::new(),
             last_event_id: None,
         }
-    }
-
-    /// Verifies the integrity of a stored event.
-    /// Recomputes the hash from the raw bytes and compares it to the stored metadata.
-    /// Also checks that the previous link exists in the store.
-    pub fn verify(&self, id: &EventId) -> Result<VerificationResult, StoreError> {
-        let event = self.retrieve(id)?;
-        let metadata = event
-            .metadata
-            .integrity
-            .as_ref()
-            .expect("Event should have integrity metadata");
-
-        let actual_hash = compute_hash(event.as_bytes());
-        if actual_hash != metadata.content_hash {
-            return Ok(VerificationResult::HashMismatch {
-                expected: metadata.content_hash.clone(),
-                actual: actual_hash,
-            });
-        }
-
-        if let Some(prev_id) = &metadata.previous_link {
-            if !self.map.contains_key(prev_id) {
-                return Ok(VerificationResult::BrokenLink(prev_id.clone()));
-            }
-        }
-
-        Ok(VerificationResult::Success)
-    }
-
-    /// Verifies an entire chain of events, walking backwards via `previous_link`.
-    /// Returns `Ok(())` if the whole chain is valid, or the `VerificationResult` that failed.
-    pub fn verify_chain(&self, head_id: &EventId) -> Result<VerificationResult, StoreError> {
-        let mut current_id = head_id.clone();
-        loop {
-            let result = self.verify(&current_id)?;
-            if !result.is_success() {
-                return Ok(result);
-            }
-
-            let event = self.retrieve(&current_id)?;
-            let metadata = event.metadata.integrity.unwrap();
-
-            match metadata.previous_link {
-                Some(prev) => current_id = prev,
-                None => break, // Reached the beginning of the chain
-            }
-        }
-        Ok(VerificationResult::Success)
     }
 
     /// Exposes a way to deliberately tamper with data for testing purposes.

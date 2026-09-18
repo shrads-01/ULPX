@@ -124,3 +124,13 @@ dependencies = [
  "ulpx-core",
  "ulpx-infer",
 ]
+
+[[package]]
+name = "ulpx-replay"
+version = "0.1.0"
+dependencies = [
+ "ulpx-core",
+ "ulpx-infer",
+ "ulpx-ir",
+ "ulpx-mapping",
+]
