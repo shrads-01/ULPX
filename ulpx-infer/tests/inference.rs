@@ -134,7 +134,7 @@ fn unknown_format_no_recognizable_structure() {
             ));
         }
         InferenceOutcome::Recognized { candidate, .. } => {
-            // Only acceptable if confidence is Low (shouldn't normally happen with default policy)
+            // Only acceptable if confidence is Low
             assert_eq!(candidate.confidence, InferenceConfidence::Low);
         }
     }
@@ -157,6 +157,25 @@ fn raw_bytes_never_modified() {
     let input = b"totally opaque: \xff\xfe binary data";
     let r = engine.infer(&record(input), None);
     assert_eq!(r.raw_bytes, input);
+}
+
+#[test]
+fn raw_bytes_preserved_on_registry_success() {
+    use ulpx_core::parser::{LifecycleStage, ParserRegistry};
+    let mut reg = ParserRegistry::new();
+    reg.register(
+        Box::new(ulpx_core::parser::json::JsonParser::new()),
+        LifecycleStage::Deployed,
+    )
+    .unwrap();
+
+    let engine = InferenceEngine::default();
+    let input = br#"{"x": 1}"#;
+    let r = engine.infer(&record(input), Some(&reg));
+    assert_eq!(
+        r.raw_bytes, input,
+        "raw bytes must be preserved on registry fast-path"
+    );
 }
 
 // ─── Determinism ─────────────────────────────────────────────────────────────
@@ -185,21 +204,45 @@ fn candidate_ordering_is_deterministic() {
         InferenceOutcome::Recognized { all_candidates, .. } => all_candidates,
         InferenceOutcome::Abstained { all_candidates, .. } => all_candidates,
     };
-    let ids1: Vec<_> = candidates1.iter().map(|c| c.parser_id).collect();
-    let ids2: Vec<_> = candidates2.iter().map(|c| c.parser_id).collect();
+    let ids1: Vec<_> = candidates1.iter().map(|c| c.parser_id.as_str()).collect();
+    let ids2: Vec<_> = candidates2.iter().map(|c| c.parser_id.as_str()).collect();
     assert_eq!(ids1, ids2, "candidate ordering must be deterministic");
 }
 
 // ─── Detectors consulted ─────────────────────────────────────────────────────
 
 #[test]
-fn detectors_consulted_list_is_complete() {
+fn detectors_consulted_list_is_complete_for_structural_path() {
     let engine = InferenceEngine::default();
+    // No registry supplied → structural path used
     let r = engine.infer(&record(br#"{"x": 1}"#), None);
-    // All three built-in detectors should always be consulted
+    // All three built-in detectors should always be consulted on the structural path
     assert!(r.detectors_consulted.contains(&"json"));
     assert!(r.detectors_consulted.contains(&"cef"));
     assert!(r.detectors_consulted.contains(&"syslog"));
+}
+
+#[test]
+fn detectors_consulted_is_registry_only_on_fast_path() {
+    // Regression test for defect: detectors_consulted was always set to the full
+    // structural list even when the registry fast-path was taken.
+    use ulpx_core::parser::{LifecycleStage, ParserRegistry};
+    let mut reg = ParserRegistry::new();
+    reg.register(
+        Box::new(ulpx_core::parser::json::JsonParser::new()),
+        LifecycleStage::Deployed,
+    )
+    .unwrap();
+
+    let engine = InferenceEngine::default();
+    let r = engine.infer(&record(br#"{"event": "login"}"#), Some(&reg));
+
+    // On the registry fast-path, structural detectors are NOT run.
+    assert_eq!(
+        r.detectors_consulted,
+        vec!["registry"],
+        "registry fast-path must not report structural detectors as consulted"
+    );
 }
 
 // ─── Registry integration ─────────────────────────────────────────────────────
@@ -222,6 +265,33 @@ fn registry_integration_json_recognized() {
     match r.outcome {
         InferenceOutcome::Recognized { candidate, .. } => {
             assert_eq!(candidate.parser_id, "json-flat");
+        }
+        other => panic!("expected Recognized, got {other:?}"),
+    }
+}
+
+#[test]
+fn registry_parser_id_is_preserved_exactly() {
+    // Regression test: registry fast-path must carry the exact parser ID from
+    // the parse result, not a hardcoded fallback like "unknown".
+    use ulpx_core::parser::{LifecycleStage, ParserRegistry};
+
+    let mut reg = ParserRegistry::new();
+    reg.register(
+        Box::new(ulpx_core::parser::json::JsonParser::new()),
+        LifecycleStage::Deployed,
+    )
+    .unwrap();
+
+    let engine = InferenceEngine::default();
+    let r = engine.infer(&record(br#"{"k": "v"}"#), Some(&reg));
+
+    match r.outcome {
+        InferenceOutcome::Recognized { candidate, .. } => {
+            assert_eq!(
+                candidate.parser_id, "json-flat",
+                "parser ID must be the exact registered parser ID, not a hardcoded fallback"
+            );
         }
         other => panic!("expected Recognized, got {other:?}"),
     }
@@ -254,6 +324,41 @@ fn registry_integration_unknown_falls_back_to_structural() {
     }
 }
 
+#[test]
+fn registry_fallback_uses_structural_detectors() {
+    // When registry returns Unsupported, the structural detectors MUST be run.
+    use ulpx_core::parser::{LifecycleStage, ParserRegistry};
+
+    let mut reg = ParserRegistry::new();
+    reg.register(
+        Box::new(ulpx_core::parser::json::JsonParser::new()),
+        LifecycleStage::Deployed,
+    )
+    .unwrap();
+
+    let engine = InferenceEngine::default();
+    // CEF input — JSON parser will return Unsupported
+    let r = engine.infer(
+        &record(b"CEF:0|Vendor|Product|1.0|100|Event|5|src=10.0.0.1"),
+        Some(&reg),
+    );
+
+    // Structural detectors must have been run (not registry fast-path)
+    assert!(
+        r.detectors_consulted.contains(&"cef"),
+        "cef structural detector must be consulted on registry-miss fallback"
+    );
+
+    match r.outcome {
+        InferenceOutcome::Recognized { candidate, .. } => {
+            assert_eq!(candidate.parser_id, "cef");
+        }
+        InferenceOutcome::Abstained { .. } => {
+            panic!("expected cef to be recognized after registry fallback");
+        }
+    }
+}
+
 // ─── Custom detector ─────────────────────────────────────────────────────────
 
 #[test]
@@ -265,8 +370,8 @@ fn custom_detector_can_be_registered() {
         let comma_count = text.bytes().filter(|&b| b == b',').count();
         if comma_count >= 2 {
             Some(FormatCandidate {
-                parser_id: "csv",
-                format_name: "CSV",
+                parser_id: "csv".to_string(),
+                format_name: "CSV".to_string(),
                 confidence: InferenceConfidence::Medium,
                 evidence: vec![Evidence::support(
                     "csv-comma-count",
@@ -322,6 +427,25 @@ fn insufficient_evidence_abstains_not_guesses() {
                 candidate.confidence,
                 InferenceConfidence::High,
                 "must not select High-confidence candidate for ambiguous input"
+            );
+        }
+    }
+}
+
+#[test]
+fn evidence_has_detector_id() {
+    // Every piece of evidence must carry a detector_id for auditability.
+    let engine = InferenceEngine::default();
+    let r = engine.infer(&record(br#"{"key": "value"}"#), None);
+    let all = match &r.outcome {
+        InferenceOutcome::Recognized { all_candidates, .. } => all_candidates,
+        InferenceOutcome::Abstained { all_candidates, .. } => all_candidates,
+    };
+    for candidate in all {
+        for ev in &candidate.evidence {
+            assert!(
+                !ev.detector_id.is_empty(),
+                "evidence item must have a non-empty detector_id"
             );
         }
     }

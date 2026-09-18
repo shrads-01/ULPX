@@ -8,22 +8,32 @@
 //! 3. Drop candidates whose `net_support` is ≤ 0.
 //! 4. Sort remaining candidates: descending confidence, then alphabetical
 //!    `parser_id` as tiebreaker (guarantees determinism).
-//! 5. If the top-ranked candidate's confidence is `High` and the second
-//!    candidate's confidence is strictly lower, select the top candidate.
-//! 6. If two or more candidates share the highest confidence level, abstain
-//!    with [`AbstentionReason::AmbiguousCandidates`].
-//! 7. If no `High` candidate exists but at least one `Medium` candidate exists
-//!    and is unambiguous, select it.
+//! 5. If the top-ranked candidate's confidence is `High` and no second
+//!    candidate shares that confidence level, select the top candidate.
+//! 6. If two or more candidates share the highest confidence level (≥ Medium),
+//!    abstain with [`AbstentionReason::AmbiguousCandidates`].
+//! 7. If no `High` candidate exists but at least one unambiguous `Medium`
+//!    candidate exists, select it.
 //! 8. If only `Low` candidates exist, abstain with
 //!    [`AbstentionReason::InsufficientEvidence`].
 //! 9. If no candidates survive step 3, abstain with
 //!    [`AbstentionReason::NoRecognizableStructure`].
 //!
-//! The engine also integrates with the [`ParserRegistry`]: if a registry is
-//! attached, the engine first asks each *registered* parser whether it
-//! recognises the record.  A parser returning `Ok(_)` or `Err(Malformed)`
-//! counts as a claim of recognition and bypasses pure structural inference.
-//! A parser returning `Err(Unsupported)` does not affect inference.
+//! # Registry integration
+//!
+//! If a [`ParserRegistry`] is supplied, the engine probes it **before** running
+//! structural detectors.  The probe is read-only and does not change the
+//! registry or the parser error semantics.
+//!
+//! * `Ok(result)` — the parser successfully parsed the record.  The exact
+//!   parser ID (from `result.parser_id`) is preserved in the candidate, so
+//!   provenance is complete even for dynamically registered parsers.
+//! * `Err(Malformed | ResourceLimit)` — some parser recognised the format but
+//!   the specific record is broken.  The engine falls through to structural
+//!   inference so the format can still be identified for the audit trail.  The
+//!   caller is responsible for re-running the parser and handling the error.
+//! * `Err(Unsupported)` — no registered parser recognised the record.  Fall
+//!   through to structural inference.
 
 use crate::evidence::{detect_cef, detect_json, detect_syslog};
 use crate::model::{
@@ -38,7 +48,9 @@ use ulpx_core::parser::{ParserError, ParserRegistry};
 // ─────────────────────────────────────────────
 
 /// A structural detector: a function from bytes to an optional candidate.
-type DetectorFn = fn(&[u8]) -> Option<FormatCandidate>;
+///
+/// Detectors must be deterministic, non-modifying, independent, and bounded.
+pub type DetectorFn = fn(&[u8]) -> Option<FormatCandidate>;
 
 // ─────────────────────────────────────────────
 // InferenceEngine
@@ -84,25 +96,18 @@ impl InferenceEngine {
     /// Run inference on a [`FramedRecord`], optionally consulting a
     /// [`ParserRegistry`] for direct parser feedback first.
     ///
-    /// If `registry` is `Some`, each registered parser is asked to parse the
-    /// record:
-    /// * `Ok(result)` → return immediately as a high-confidence `Recognized`
-    ///   result (the parser already knows it can handle this).
-    /// * `Err(Malformed | ResourceLimit)` → the parser claims the format but
-    ///   the record is broken; return a `Recognized` result with a note in
-    ///   evidence (the caller should handle the parse error separately).
-    /// * `Err(Unsupported)` → continue to structural inference.
-    ///
-    /// This integration never changes the parser error semantics of the
-    /// registry and does not cause side-effects.
+    /// The raw bytes in the returned [`InferenceResult`] are always a copy of
+    /// the input bytes and are never modified.
     pub fn infer(
         &self,
         record: &FramedRecord,
         registry: Option<&ParserRegistry>,
     ) -> InferenceResult {
         let bytes = record.as_bytes();
-        let detectors_consulted: Vec<&'static str> =
-            self.detectors.iter().map(|(id, _)| *id).collect();
+
+        // detectors_consulted reflects what was *actually* consulted.
+        // On the fast-path (registry success) structural detectors are not run,
+        // so we build this list lazily.
 
         // ── Step 0: empty input ──────────────────────────────────────────
         if bytes.is_empty() {
@@ -112,7 +117,7 @@ impl InferenceEngine {
                     reason: AbstentionReason::EmptyInput,
                     all_candidates: Vec::new(),
                 },
-                detectors_consulted,
+                detectors_consulted: Vec::new(),
             };
         }
 
@@ -120,8 +125,8 @@ impl InferenceEngine {
         if let Some(reg) = registry {
             match reg.parse_first(record) {
                 Ok(result) => {
-                    // A parser parsed it successfully.
-                    let static_id: &'static str = static_parser_id(&result.parser_id);
+                    // A registered parser successfully parsed the record.
+                    // Use the exact parser ID from the result — no hardcoded table.
                     let evidence = vec![Evidence::support(
                         "registry-parse-success",
                         format!(
@@ -130,10 +135,10 @@ impl InferenceEngine {
                         ),
                     )];
                     let candidate = FormatCandidate {
-                        parser_id: static_id,
-                        format_name: "known-format",
+                        parser_id: result.parser_id.clone(),
+                        format_name: result.parser_id.clone(), // parser ID is the canonical name
                         confidence: InferenceConfidence::High,
-                        evidence: evidence.clone(),
+                        evidence,
                     };
                     return InferenceResult {
                         raw_bytes: bytes.to_vec(),
@@ -141,27 +146,27 @@ impl InferenceEngine {
                             all_candidates: vec![candidate.clone()],
                             candidate,
                         },
-                        detectors_consulted,
+                        // Only "registry" was consulted; structural detectors were not run.
+                        detectors_consulted: vec!["registry"],
                     };
                 }
                 Err(ParserError::Malformed(_) | ParserError::ResourceLimit(_)) => {
-                    // A parser claimed the format but the record is broken.
-                    // We still report as "recognized" (format identified) but
-                    // the caller must handle the parse error.
-                    // Note: we do NOT know which parser produced the error here
-                    // because parse_first returns the first claiming parser.
-                    // We emit a Recognized result for the structural inference
-                    // to decide the winner, but flag it.
-                    // Fall through to structural inference.
+                    // A parser claimed the format but this specific record is broken.
+                    // The caller should re-parse and handle the error.
+                    // Fall through to structural inference to identify the format
+                    // so the audit trail is still complete.
                 }
                 Err(ParserError::Unsupported) => {
-                    // No registered parser recognises this record.
+                    // No registered parser recognised this record.
                     // Fall through to structural inference.
                 }
             }
         }
 
         // ── Step 2: run structural detectors ─────────────────────────────
+        let detectors_consulted: Vec<&'static str> =
+            self.detectors.iter().map(|(id, _)| *id).collect();
+
         let mut candidates: Vec<FormatCandidate> = self
             .detectors
             .iter()
@@ -174,7 +179,7 @@ impl InferenceEngine {
         candidates.sort_by(|a, b| {
             b.confidence
                 .cmp(&a.confidence)
-                .then_with(|| a.parser_id.cmp(b.parser_id))
+                .then_with(|| a.parser_id.cmp(&b.parser_id))
         });
 
         // ── Step 4: decide outcome ────────────────────────────────────────
@@ -191,13 +196,13 @@ impl InferenceEngine {
 
         let top_confidence = candidates[0].confidence;
 
-        // Count how many share the top confidence.
-        let tied: Vec<&FormatCandidate> = candidates
+        // Count how many candidates share the top confidence.
+        let tie_count = candidates
             .iter()
             .filter(|c| c.confidence == top_confidence)
-            .collect();
+            .count();
 
-        if tied.len() > 1 && top_confidence >= InferenceConfidence::Medium {
+        if tie_count > 1 && top_confidence >= InferenceConfidence::Medium {
             // Ambiguous: multiple candidates at Medium or High confidence.
             return InferenceResult {
                 raw_bytes: bytes.to_vec(),
@@ -236,26 +241,5 @@ impl InferenceEngine {
 impl Default for InferenceEngine {
     fn default() -> Self {
         Self::with_defaults()
-    }
-}
-
-// ─────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────
-
-/// Map a known parser ID string to its `&'static str` counterpart.
-///
-/// This avoids `String::leak()` (which permanently leaks memory) while still
-/// satisfying the `&'static str` requirement in `FormatCandidate::parser_id`.
-///
-/// Unknown parser IDs fall back to `"unknown"`.  The registry-probe path only
-/// returns parser IDs that were registered, so any registered parser should be
-/// listed here.
-fn static_parser_id(id: &str) -> &'static str {
-    match id {
-        "json-flat" => "json-flat",
-        "cef" => "cef",
-        "syslog-rfc3164" => "syslog-rfc3164",
-        _ => "unknown",
     }
 }

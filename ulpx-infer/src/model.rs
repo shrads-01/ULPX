@@ -82,9 +82,12 @@ impl fmt::Display for InferenceConfidence {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormatCandidate {
     /// The parser ID this candidate maps to (e.g. `"json-flat"`, `"cef"`).
-    pub parser_id: &'static str,
+    ///
+    /// Owned `String` so that dynamically-registered parsers can be represented
+    /// without a hardcoded lookup table or memory leaks.
+    pub parser_id: String,
     /// Human-readable format name (e.g. `"JSON"`, `"CEF"`).
-    pub format_name: &'static str,
+    pub format_name: String,
     /// Confidence in this candidate.
     pub confidence: InferenceConfidence,
     /// All evidence observations that led to this candidate, in the order they

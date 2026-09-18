@@ -1,24 +1,24 @@
-//! Structural detectors that produce [`FormatCandidate`] evidence for a
+﻿//! Structural detectors that produce [`FormatCandidate`] evidence for a
 //! framed record.
 //!
 //! Each detector is a free function that inspects the raw bytes of a record
-//! and returns an `Option<FormatCandidate>` — `None` means the detector found
+//! and returns an `Option<FormatCandidate>` â€” `None` means the detector found
 //! no evidence worth reporting at all, not even contradicting evidence.
 //!
 //! Detectors must be:
-//! * **deterministic** — same input, same output
-//! * **non-modifying** — they only read bytes
-//! * **independent** — they do not call other detectors
-//! * **bounded** — they must not loop unboundedly over input
+//! * **deterministic** â€” same input, same output
+//! * **non-modifying** â€” they only read bytes
+//! * **independent** â€” they do not call other detectors
+//! * **bounded** â€” they must not loop unboundedly over input
 //!
 //! A detector may add both supporting and contradicting [`Evidence`] items to
 //! a single candidate.  The engine aggregates all detectors before deciding.
 
 use crate::model::{Evidence, FormatCandidate, InferenceConfidence};
 
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // JSON detector
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /// Detect JSON objects by structural markers.
 ///
@@ -35,7 +35,7 @@ pub fn detect_json(bytes: &[u8]) -> Option<FormatCandidate> {
 
     let mut evidence = Vec::new();
 
-    // UTF-8 check — JSON is always UTF-8.
+    // UTF-8 check â€” JSON is always UTF-8.
     let text = match std::str::from_utf8(trimmed) {
         Ok(t) => t,
         Err(_) => {
@@ -44,8 +44,8 @@ pub fn detect_json(bytes: &[u8]) -> Option<FormatCandidate> {
                 "input is not valid UTF-8; JSON requires UTF-8",
             ));
             return Some(FormatCandidate {
-                parser_id: "json-flat",
-                format_name: "JSON",
+                parser_id: "json-flat".to_string(),
+                format_name: "JSON".to_string(),
                 confidence: InferenceConfidence::Low,
                 evidence,
             });
@@ -105,20 +105,20 @@ pub fn detect_json(bytes: &[u8]) -> Option<FormatCandidate> {
     };
 
     Some(FormatCandidate {
-        parser_id: "json-flat",
-        format_name: "JSON",
+        parser_id: "json-flat".to_string(),
+        format_name: "JSON".to_string(),
         confidence,
         evidence,
     })
 }
 
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // CEF detector
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /// Detect CEF (Common Event Format) by its mandatory header prefix.
 ///
-/// CEF:0|… has a precisely defined header structure.  We check:
+/// CEF:0|â€¦ has a precisely defined header structure.  We check:
 /// * Starts with `CEF:` (case-sensitive per spec)
 /// * Followed by a single decimal digit and `|`
 /// * Contains at least 6 pipe separators (the 7 mandatory header fields)
@@ -161,7 +161,7 @@ pub fn detect_cef(bytes: &[u8]) -> Option<FormatCandidate> {
     if pipe_count >= 6 {
         evidence.push(Evidence::support(
             "cef-pipe-count",
-            format!("found {pipe_count} pipe separators (≥6 required for valid CEF header)"),
+            format!("found {pipe_count} pipe separators (â‰¥6 required for valid CEF header)"),
         ));
     } else {
         evidence.push(Evidence::contradict(
@@ -179,16 +179,16 @@ pub fn detect_cef(bytes: &[u8]) -> Option<FormatCandidate> {
     };
 
     Some(FormatCandidate {
-        parser_id: "cef",
-        format_name: "CEF",
+        parser_id: "cef".to_string(),
+        format_name: "CEF".to_string(),
         confidence,
         evidence,
     })
 }
 
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Syslog detector
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /// Detect RFC 3164 syslog by its priority marker and timestamp shape.
 ///
@@ -214,8 +214,8 @@ pub fn detect_syslog(bytes: &[u8]) -> Option<FormatCandidate> {
                 "record starts with a 3-letter month abbreviation consistent with syslog",
             ));
             return Some(FormatCandidate {
-                parser_id: "syslog-rfc3164",
-                format_name: "Syslog (RFC 3164)",
+                parser_id: "syslog-rfc3164".to_string(),
+                format_name: "Syslog (RFC 3164)".to_string(),
                 confidence: InferenceConfidence::Medium,
                 evidence,
             });
@@ -237,8 +237,8 @@ pub fn detect_syslog(bytes: &[u8]) -> Option<FormatCandidate> {
                 "no closing '>' found for priority field",
             ));
             return Some(FormatCandidate {
-                parser_id: "syslog-rfc3164",
-                format_name: "Syslog (RFC 3164)",
+                parser_id: "syslog-rfc3164".to_string(),
+                format_name: "Syslog (RFC 3164)".to_string(),
                 confidence: InferenceConfidence::Low,
                 evidence,
             });
@@ -277,19 +277,19 @@ pub fn detect_syslog(bytes: &[u8]) -> Option<FormatCandidate> {
     };
 
     Some(FormatCandidate {
-        parser_id: "syslog-rfc3164",
-        format_name: "Syslog (RFC 3164)",
+        parser_id: "syslog-rfc3164".to_string(),
+        format_name: "Syslog (RFC 3164)".to_string(),
         confidence,
         evidence,
     })
 }
 
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Helpers
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /// Returns true if the text starts with a 3-letter month abbreviation followed
-/// by a space (e.g. "Jan ", "Feb ", …), consistent with syslog timestamps.
+/// by a space (e.g. "Jan ", "Feb ", â€¦), consistent with syslog timestamps.
 fn looks_like_syslog_timestamp_start(text: &str) -> bool {
     const MONTHS: [&str; 12] = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -302,9 +302,9 @@ fn looks_like_syslog_timestamp_start(text: &str) -> bool {
     MONTHS.contains(&prefix) && after == ' '
 }
 
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Tests
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[cfg(test)]
 mod tests {
