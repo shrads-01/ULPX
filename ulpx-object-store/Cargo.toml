@@ -1,0 +1,12 @@
+﻿[package]
+name = "ulpx-object-store"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+thiserror = "1.0"
+
+[dev-dependencies]
+ulpx-core = { path = "../ulpx-core" }
+ulpx-replay = { path = "../ulpx-replay" }
+ulpx-parquet = { path = "../ulpx-parquet" }

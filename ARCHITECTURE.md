@@ -1,7 +1,7 @@
 ﻿# ULPX -- Architecture
 
 > **Status**: Living document. Updated after each implemented phase.
-> Last updated: Phase 14 Parquet Export.
+> Last updated: Phase 14 Object Storage Boundary.
 
 ---
 
@@ -87,7 +87,7 @@ raw input (file/stdin)     â”‚                             â”‚
 **Key invariants of the above:**
 
 - Ingestion framing does not consume or replace the original evidence. The exact framed bytes become the `RawEvent` bytes.
-- **Limitation (Phase 14D):** The current `NewlineFramer` strips the framing delimiters (`\n` and `\r\n`). Because ingestion currently uses this framer, the delimiter bytes are not preserved in the stored `RawEvent`. The payload itself is byte-exact.
+- **Byte exactness on delimiters**: Ingestion strictly preserves the exact framed source bytes via FramedRecord::byte_range(). The payload and its delimiters are byte-exact.
 - Framing does not modify the original stored bytes during replay either.
 - If `verify_chain` fails, the pipeline returns an `Interpretation` with `integrity_verified: false` and empty frames. No parsing occurs on evidence whose integrity cannot be confirmed.
 - `Interpretation` is an ephemeral in-memory result. It is not currently persisted anywhere.
@@ -215,9 +215,18 @@ The following capabilities work with no network connection, no external services
 
 ---
 
-## Implemented Infrastructure (Phase 14 REST API & Parquet)
+## Implemented Infrastructure (Phase 14)
 
-  - **Parquet Export**: Deterministic export layer (ulpx-parquet). Parquet is a derived frame-level export / analytics representation; the authoritative lossless evidence remains in EvidenceStore.
+### Authoritative evidence:
+    EvidenceStore (LocalEvidenceStore)
+
+### Derived artifacts:
+    Parquet (ulpx-parquet) / Object Storage (ulpx-object-store)
+
+### Offline operation:
+    LocalObjectStore, CLI, and REST API require no network.
+
+- **Parquet Export**: Deterministic export layer (ulpx-parquet). Parquet is a derived frame-level export / analytics representation; the authoritative lossless evidence remains in EvidenceStore.
 
 - **Local REST API (ulpx-serve)**: Exposes basic read-only evidence retrieval (/api/v1/evidence/:id) and interpretation retrieval (/api/v1/interpretation/:id) directly over the existing LocalEvidenceStore and ReplayPipeline.
 - **Zero-Network Ingestion**: The offline CLI (ulpx process) remains fully functional without any network requirement.
@@ -227,15 +236,14 @@ The following capabilities work with no network connection, no external services
 - **Kafka / Redpanda**: For distributed log ingestion.
 - **PostgreSQL**: For relational metadata and index storage.
 - **OpenSearch**: For full-text search of interpretations.
-- **Object Storage**: For tiered long-term retention.
+- **Future remote object storage**: may be introduced as another implementation later (e.g. S3).
 - **Production API Server**: Authentication, authorization, and rate limiting are not yet implemented.
 
-## Known limitations (Phase 14 REST API)
+## Known limitations (Phase 14 REST API & Object Store)
 
 - **In-memory index**: `LocalEvidenceStore` builds its entire `EventId` index in memory at startup via an O(N) sequential file scan.
 - **Unbounded log growth**: the append-only log file is never compacted or rotated.
 - **Silent tail recovery**: malformed trailing records are silently discarded on startup.
-- **Byte exactness on delimiters**: Because the current `NewlineFramer` strips newlines, the framing delimiters (`\n`, `\r\n`) are not preserved in the stored `RawEvent` during ingestion. The payload itself is byte-exact.
 - **Memory buffering**: Ingestion currently buffers entire streams into memory.
 - **No interpretation persistence**: `Interpretation` records are ephemeral.
 - **No export projections**: OCSF, ECS, and OpenSearch output are not implemented.
