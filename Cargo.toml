@@ -5,6 +5,7 @@ members = [
     "ulpx-ir",
     "ulpx-ingest", "ulpx-mapping",
     "ulpx-infer", "ulpx-onboard", "ulpx-replay", "ulpx-serve",
+    "ulpx-postgres",
     "ulpx-parquet",
     "ulpx-object-store",
 ]

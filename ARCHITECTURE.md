@@ -234,7 +234,7 @@ The following capabilities work with no network connection, no external services
 ## Future Infrastructure (Not Implemented)
 
 - **Kafka / Redpanda**: For distributed log ingestion.
-- **PostgreSQL**: For relational metadata and index storage.
+- **PostgreSQL (ulpx-postgres)**: Persistent operational record/index of interpretations. Explicitly does NOT own raw evidence. PostgreSQL configuration rows are immutable historical representations, not a mutable runtime configuration registry.
 - **OpenSearch**: For full-text search of interpretations.
 - **Future remote object storage**: may be introduced as another implementation later (e.g. S3).
 - **Production API Server**: Authentication, authorization, and rate limiting are not yet implemented.

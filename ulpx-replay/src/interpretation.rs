@@ -19,6 +19,50 @@ pub struct PipelineConfiguration {
     pub inference_detectors: Vec<String>,
 }
 
+fn write_str(buf: &mut Vec<u8>, s: &str) -> Result<(), String> {
+    let len = u32::try_from(s.len()).map_err(|_| "String length exceeds u32::MAX")?;
+    buf.extend_from_slice(&len.to_be_bytes());
+    buf.extend_from_slice(s.as_bytes());
+    Ok(())
+}
+
+fn write_component(buf: &mut Vec<u8>, c: &ComponentConfig) -> Result<(), String> {
+    write_str(buf, &c.id)?;
+    write_str(buf, &c.version)?;
+    Ok(())
+}
+
+/// Canonical serialization of PipelineConfiguration for identity hashing.
+fn serialize_pipeline_config(
+    config: &PipelineConfiguration,
+    buf: &mut Vec<u8>,
+) -> Result<(), String> {
+    write_component(buf, &config.framer)?;
+    write_component(buf, &config.mapper)?;
+
+    let parsers_len = u32::try_from(config.parser_registry.len()).map_err(|_| "Overflow")?;
+    buf.extend_from_slice(&parsers_len.to_be_bytes());
+    for p in &config.parser_registry {
+        write_component(buf, p)?;
+    }
+
+    let infer_len = u32::try_from(config.inference_detectors.len()).map_err(|_| "Overflow")?;
+    buf.extend_from_slice(&infer_len.to_be_bytes());
+    for d in &config.inference_detectors {
+        write_str(buf, d)?;
+    }
+    Ok(())
+}
+
+impl PipelineConfiguration {
+    /// Generates a deterministic canonical identity for this configuration.
+    pub fn configuration_identity(&self) -> Result<ContentHash, String> {
+        let mut buf = Vec::new();
+        serialize_pipeline_config(self, &mut buf)?;
+        Ok(compute_hash(&buf))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InferenceExecution {
     NotInvoked,
@@ -38,36 +82,8 @@ pub struct InterpretationId(pub ContentHash);
 impl InterpretationId {
     pub fn generate(source_id: &EventId, config: &PipelineConfiguration) -> Result<Self, String> {
         let mut buf = Vec::new();
-
-        fn write_str(buf: &mut Vec<u8>, s: &str) -> Result<(), String> {
-            let len = u32::try_from(s.len()).map_err(|_| "String length exceeds u32::MAX")?;
-            buf.extend_from_slice(&len.to_be_bytes());
-            buf.extend_from_slice(s.as_bytes());
-            Ok(())
-        }
-
-        fn write_component(buf: &mut Vec<u8>, c: &ComponentConfig) -> Result<(), String> {
-            write_str(buf, &c.id)?;
-            write_str(buf, &c.version)?;
-            Ok(())
-        }
-
         write_str(&mut buf, source_id.as_str())?;
-        write_component(&mut buf, &config.framer)?;
-        write_component(&mut buf, &config.mapper)?;
-
-        let parsers_len = u32::try_from(config.parser_registry.len()).map_err(|_| "Overflow")?;
-        buf.extend_from_slice(&parsers_len.to_be_bytes());
-        for p in &config.parser_registry {
-            write_component(&mut buf, p)?;
-        }
-
-        let infer_len = u32::try_from(config.inference_detectors.len()).map_err(|_| "Overflow")?;
-        buf.extend_from_slice(&infer_len.to_be_bytes());
-        for d in &config.inference_detectors {
-            write_str(&mut buf, d)?;
-        }
-
+        serialize_pipeline_config(config, &mut buf)?;
         Ok(Self(compute_hash(&buf)))
     }
 }

@@ -1,0 +1,20 @@
+﻿[package]
+name = "ulpx-postgres"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ulpx-core = { path = "../ulpx-core" }
+ulpx-replay = { path = "../ulpx-replay" }
+ulpx-infer = { path = "../ulpx-infer" }
+
+sqlx = { version = "0.7", features = ["postgres", "runtime-tokio-rustls", "json"] }
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+
+[dev-dependencies]
+ulpx-mapping = { path = "../ulpx-mapping" }
+testcontainers = "0.15"
+testcontainers-modules = { version = "0.3", features = ["postgres"] }
