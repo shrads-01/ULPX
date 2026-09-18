@@ -1,0 +1,24 @@
+﻿[package]
+name = "ulpx-serve"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+base64 = "0.22"
+hex = "0.4"
+
+ulpx-core = { path = "../ulpx-core" }
+ulpx-ir = { path = "../ulpx-ir" }
+ulpx-infer = { path = "../ulpx-infer" }
+ulpx-mapping = { path = "../ulpx-mapping" }
+ulpx-replay = { path = "../ulpx-replay" }
+
+
+[dev-dependencies]
+tower = { version = "0.4", features = ["util"] }
+
+http-body-util = "0.1"

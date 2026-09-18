@@ -4,5 +4,5 @@ members = [
     "ulpx-core",
     "ulpx-ir",
     "ulpx-ingest", "ulpx-mapping",
-    "ulpx-infer", "ulpx-onboard", "ulpx-replay",
+    "ulpx-infer", "ulpx-onboard", "ulpx-replay", "ulpx-serve",
 ]

@@ -1,4 +1,4 @@
-# ULPX -- Architecture
+﻿# ULPX -- Architecture
 
 > **Status**: Living document. Updated after each implemented phase.
 > Last updated: Phase 14D (Offline CLI Ingestion Boundary).
@@ -30,58 +30,58 @@ The current pipeline covers: ingestion -> evidence storage -> replay -> framing 
 -> IR conversion -> semantic mapping -> interpretation.
 
 ```
-                           ┌─ lossless evidence storage ─┐
-                           │                             │
-raw input (file/stdin)     │                             │
-        │                  │                             │
-        ▼                  │                             │
-   [ulpx-ingest]           │                             │
-   (CLI boundary)          │                             │
-   Frames byte stream      │                             │
-   and constructs RawEvent │                             │
-        │                  │                             │
-        ▼                  │                             │
-   EvidenceStore::store    │  ← original bytes stored    │
-   (assigns EventId,       │    unmodified; integrity    │
-    computes hash,         │    hash computed at store   │
-    links to chain)        │    time; never overwritten  │
-        │                  │                             │
-        └─────────────────►│  InMemoryStore              │
-                           │  LocalEvidenceStore         │
-                           └──────────────────────────── ┘
-                                      │
-                                      │ EvidenceStore::retrieve
-                                      │ (returns original bytes,
-                                      │  byte-for-byte identical)
-                                      ▼
-                           ┌──── ReplayPipeline ─────────────────────────────┐
-                           │                                                 │
-                           │  1. verify_chain -- confirms integrity before   │
-                           │     any interpretation begins                   │
-                           │                                                 │
-                           │  2. Framer::frame_all(raw_bytes)                │
-                           │     Identifies record boundaries.               │
-                           │     Does NOT modify the original stored bytes.  │
-                           │     Produces FramedRecord slices.               │
-                           │                                                 │
-                           │  3. ParserRegistry / InferenceEngine            │
-                           │     Interprets each FramedRecord.               │
-                           │     Parsers receive the already-framed bytes.   │
-                           │                                                 │
-                           │  4. IrConverter  →  EventIr (canonical IR)     │
-                           │                                                 │
-                           │  5. MappingEngine  →  CanonicalEvent            │
-                           │                       (OCSF draft projection)   │
-                           │                                                 │
-                           │  Returns: Interpretation                        │
-                           │    .id              (InterpretationId)          │
-                           │    .integrity_verified                          │
-                           │    .frames          (FrameInterpretation[])     │
-                           └─────────────────────────────────────────────────┘
-                                      │
-                                      ▼
+                           â”Œâ”€ lossless evidence storage â”€â”
+                           â”‚                             â”‚
+raw input (file/stdin)     â”‚                             â”‚
+        â”‚                  â”‚                             â”‚
+        â–¼                  â”‚                             â”‚
+   [ulpx-ingest]           â”‚                             â”‚
+   (CLI boundary)          â”‚                             â”‚
+   Frames byte stream      â”‚                             â”‚
+   and constructs RawEvent â”‚                             â”‚
+        â”‚                  â”‚                             â”‚
+        â–¼                  â”‚                             â”‚
+   EvidenceStore::store    â”‚  â† original bytes stored    â”‚
+   (assigns EventId,       â”‚    unmodified; integrity    â”‚
+    computes hash,         â”‚    hash computed at store   â”‚
+    links to chain)        â”‚    time; never overwritten  â”‚
+        â”‚                  â”‚                             â”‚
+        â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–ºâ”‚  InMemoryStore              â”‚
+                           â”‚  LocalEvidenceStore         â”‚
+                           â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ â”˜
+                                      â”‚
+                                      â”‚ EvidenceStore::retrieve
+                                      â”‚ (returns original bytes,
+                                      â”‚  byte-for-byte identical)
+                                      â–¼
+                           â”Œâ”€â”€â”€â”€ ReplayPipeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+                           â”‚                                                 â”‚
+                           â”‚  1. verify_chain -- confirms integrity before   â”‚
+                           â”‚     any interpretation begins                   â”‚
+                           â”‚                                                 â”‚
+                           â”‚  2. Framer::frame_all(raw_bytes)                â”‚
+                           â”‚     Identifies record boundaries.               â”‚
+                           â”‚     Does NOT modify the original stored bytes.  â”‚
+                           â”‚     Produces FramedRecord slices.               â”‚
+                           â”‚                                                 â”‚
+                           â”‚  3. ParserRegistry / InferenceEngine            â”‚
+                           â”‚     Interprets each FramedRecord.               â”‚
+                           â”‚     Parsers receive the already-framed bytes.   â”‚
+                           â”‚                                                 â”‚
+                           â”‚  4. IrConverter  â†’  EventIr (canonical IR)     â”‚
+                           â”‚                                                 â”‚
+                           â”‚  5. MappingEngine  â†’  CanonicalEvent            â”‚
+                           â”‚                       (OCSF draft projection)   â”‚
+                           â”‚                                                 â”‚
+                           â”‚  Returns: Interpretation                        â”‚
+                           â”‚    .id              (InterpretationId)          â”‚
+                           â”‚    .integrity_verified                          â”‚
+                           â”‚    .frames          (FrameInterpretation[])     â”‚
+                           â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                                      â”‚
+                                      â–¼
                            [FUTURE] export / persistence
-                           (not yet implemented -- see §Future)
+                           (not yet implemented -- see Â§Future)
 ```
 
 **Key invariants of the above:**
@@ -215,7 +215,21 @@ The following capabilities work with no network connection, no external services
 
 ---
 
-## Known limitations (Phase 14D)
+## Implemented Infrastructure (Phase 14 REST API)
+
+- **Local REST API (ulpx-serve)**: Exposes basic read-only evidence retrieval (/api/v1/evidence/:id) and interpretation retrieval (/api/v1/interpretation/:id) directly over the existing LocalEvidenceStore and ReplayPipeline.
+- **Zero-Network Ingestion**: The offline CLI (ulpx process) remains fully functional without any network requirement.
+
+## Future Infrastructure (Not Implemented)
+
+- **Kafka / Redpanda**: For distributed log ingestion.
+- **PostgreSQL**: For relational metadata and index storage.
+- **OpenSearch**: For full-text search of interpretations.
+- **Parquet**: For bulk data export and analytics.
+- **Object Storage**: For tiered long-term retention.
+- **Production API Server**: Authentication, authorization, and rate limiting are not yet implemented.
+
+## Known limitations (Phase 14 REST API)
 
 - **In-memory index**: `LocalEvidenceStore` builds its entire `EventId` index in memory at startup via an O(N) sequential file scan.
 - **Unbounded log growth**: the append-only log file is never compacted or rotated.
