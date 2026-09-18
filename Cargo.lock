@@ -31,3 +31,11 @@ dependencies = [
  "ulpx-core",
  "ulpx-ir",
 ]
+
+[[package]]
+name = "ulpx-onboard"
+version = "0.1.0"
+dependencies = [
+ "ulpx-core",
+ "ulpx-infer",
+]

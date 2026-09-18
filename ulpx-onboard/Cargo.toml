@@ -1,0 +1,8 @@
+[package]
+name = "ulpx-onboard"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ulpx-core = { path = "../ulpx-core" }
+ulpx-infer = { path = "../ulpx-infer" }
