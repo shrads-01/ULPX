@@ -1,7 +1,7 @@
 ﻿# ULPX -- Architecture
 
 > **Status**: Living document. Updated after each implemented phase.
-> Last updated: Phase 14D (Offline CLI Ingestion Boundary).
+> Last updated: Phase 14 Parquet Export.
 
 ---
 
@@ -215,7 +215,9 @@ The following capabilities work with no network connection, no external services
 
 ---
 
-## Implemented Infrastructure (Phase 14 REST API)
+## Implemented Infrastructure (Phase 14 REST API & Parquet)
+
+  - **Parquet Export**: Deterministic export layer (ulpx-parquet). Parquet is a derived frame-level export / analytics representation; the authoritative lossless evidence remains in EvidenceStore.
 
 - **Local REST API (ulpx-serve)**: Exposes basic read-only evidence retrieval (/api/v1/evidence/:id) and interpretation retrieval (/api/v1/interpretation/:id) directly over the existing LocalEvidenceStore and ReplayPipeline.
 - **Zero-Network Ingestion**: The offline CLI (ulpx process) remains fully functional without any network requirement.
@@ -225,7 +227,6 @@ The following capabilities work with no network connection, no external services
 - **Kafka / Redpanda**: For distributed log ingestion.
 - **PostgreSQL**: For relational metadata and index storage.
 - **OpenSearch**: For full-text search of interpretations.
-- **Parquet**: For bulk data export and analytics.
 - **Object Storage**: For tiered long-term retention.
 - **Production API Server**: Authentication, authorization, and rate limiting are not yet implemented.
 
@@ -237,4 +238,4 @@ The following capabilities work with no network connection, no external services
 - **Byte exactness on delimiters**: Because the current `NewlineFramer` strips newlines, the framing delimiters (`\n`, `\r\n`) are not preserved in the stored `RawEvent` during ingestion. The payload itself is byte-exact.
 - **Memory buffering**: Ingestion currently buffers entire streams into memory.
 - **No interpretation persistence**: `Interpretation` records are ephemeral.
-- **No export projections**: OCSF, ECS, Parquet, and OpenSearch output are not implemented.
+- **No export projections**: OCSF, ECS, and OpenSearch output are not implemented.
