@@ -69,6 +69,7 @@ pub struct EventMetadata {
     pub event_id: EventId,
     pub ingestion_timestamp: Timestamp,
     pub source: Source,
+    pub integrity: Option<crate::integrity::IntegrityMetadata>,
 }
 
 /// Raw event storing the original bytes exactly, without any transformation.
@@ -85,6 +86,7 @@ impl RawEvent {
             event_id,
             ingestion_timestamp: Timestamp::now(),
             source,
+            integrity: None,
         };
         RawEvent {
             metadata,
@@ -100,6 +102,10 @@ impl RawEvent {
     /// Consumes the event and returns ownership of the stored bytes.
     pub fn into_bytes(self) -> Vec<u8> {
         self.raw_bytes
+    }
+
+    pub fn tamper_bytes(&mut self, new_bytes: Vec<u8>) {
+        self.raw_bytes = new_bytes;
     }
 }
 

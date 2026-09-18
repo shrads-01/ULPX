@@ -9,5 +9,6 @@
 
 pub mod event;
 pub mod framing;
+pub mod integrity;
 pub mod parser;
 pub mod storage;
