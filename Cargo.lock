@@ -7,9 +7,27 @@ name = "ulpx-core"
 version = "0.1.0"
 
 [[package]]
+name = "ulpx-infer"
+version = "0.1.0"
+dependencies = [
+ "ulpx-core",
+]
+
+[[package]]
 name = "ulpx-ingest"
 version = "0.1.0"
 
 [[package]]
 name = "ulpx-ir"
 version = "0.1.0"
+dependencies = [
+ "ulpx-core",
+]
+
+[[package]]
+name = "ulpx-mapping"
+version = "0.1.0"
+dependencies = [
+ "ulpx-core",
+ "ulpx-ir",
+]

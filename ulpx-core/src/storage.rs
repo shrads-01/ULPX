@@ -1,3 +1,4 @@
+//! Evidence store abstraction. Duplicate EventIds are rejected rather than silently overwritten.
 use std::collections::HashMap;
 use std::fmt::{self, Display, Formatter};
 
@@ -8,6 +9,8 @@ use crate::event::{EventId, RawEvent};
 pub enum StoreError {
     /// The requested EventId does not exist in the store.
     NotFound,
+    /// The EventId already exists in the store; insertion is rejected.
+    DuplicateId,
     /// Generic internal error (e.g., out‑of‑memory).
     Internal(String),
 }
@@ -15,6 +18,7 @@ pub enum StoreError {
 impl Display for StoreError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
+            StoreError::DuplicateId => write!(f, "duplicate event id"),
             StoreError::NotFound => write!(f, "event not found"),
             StoreError::Internal(msg) => write!(f, "storage error: {}", msg),
         }
@@ -51,7 +55,11 @@ impl InMemoryStore {
 
 impl EvidenceStore for InMemoryStore {
     fn store(&mut self, event: RawEvent) -> Result<(), StoreError> {
-        // Move the event into the map, keyed by its EventId.
+        // Reject insertion if the EventId already exists.
+        if self.map.contains_key(&event.metadata.event_id) {
+            return Err(StoreError::DuplicateId);
+        }
+        // Insert the new event.
         self.map.insert(event.metadata.event_id.clone(), event);
         Ok(())
     }

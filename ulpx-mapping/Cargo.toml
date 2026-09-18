@@ -1,10 +1,8 @@
-[package]
-name = "ulpx-ir"
+﻿[package]
+name = "ulpx-mapping"
 version = "0.1.0"
 edition = "2021"
 
-[lib]
-path = "src/lib.rs"
-
 [dependencies]
 ulpx-core = { path = "../ulpx-core" }
+ulpx-ir = { path = "../ulpx-ir" }

@@ -1,4 +1,4 @@
-use ulpx_core::event::{EventId, RawEvent, Source};
+﻿use ulpx_core::event::{EventId, RawEvent, Source};
 use ulpx_core::storage::{EvidenceStore, InMemoryStore, StoreError};
 
 #[test]
@@ -60,4 +60,22 @@ fn multiple_events_isolation() {
     assert_eq!(got_a.as_bytes(), b"data-a");
     assert_eq!(got_b.as_bytes(), b"data-b");
     assert_ne!(got_a.metadata.event_id, got_b.metadata.event_id);
+}
+#[test]
+fn duplicate_id_rejected() {
+    let id = EventId::new("dup-id").unwrap();
+    let src = Source("dup-test".to_owned());
+    let raw1 = RawEvent::new(id.clone(), b"first".to_vec(), src.clone());
+    let raw2 = RawEvent::new(id.clone(), b"second".to_vec(), src);
+    let mut store = InMemoryStore::new();
+    // First insertion succeeds.
+    assert!(store.store(raw1.clone()).is_ok());
+    // Second insertion with same ID must be rejected.
+    match store.store(raw2) {
+        Err(StoreError::DuplicateId) => {}
+        _ => panic!("expected DuplicateId error"),
+    }
+    // Original event remains unchanged.
+    let retrieved = store.retrieve(&id).unwrap();
+    assert_eq!(retrieved.as_bytes(), b"first");
 }

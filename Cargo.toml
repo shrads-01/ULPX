@@ -3,5 +3,6 @@ resolver = "2"
 members = [
     "ulpx-core",
     "ulpx-ir",
-    "ulpx-ingest",
+    "ulpx-ingest", "ulpx-mapping",
+    "ulpx-infer",
 ]
