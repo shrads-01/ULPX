@@ -1,4 +1,4 @@
-﻿use std::env;
+use std::env;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
@@ -227,7 +227,13 @@ fn test_corruption_matrix() {
 
         // 3. A subsequent valid append MUST work and be verifiable
         let id_new = EventId::new(format!("evt_new_{}", counter)).unwrap();
-        store.store(RawEvent::new(id_new.clone(), b"data_new".to_vec(), Source("src".into()))).unwrap();
+        store
+            .store(RawEvent::new(
+                id_new.clone(),
+                b"data_new".to_vec(),
+                Source("src".into()),
+            ))
+            .unwrap();
         assert!(verify_chain(&store, &id_new).unwrap().is_success());
 
         counter += 1;
@@ -286,7 +292,7 @@ fn test_corruption_matrix() {
     let mut corrupt = valid_record.clone();
     let raw_len_idx = corrupt.len() - 8 - 4; // 'bad_data' is 8 bytes. raw_len is 4 bytes before it.
     let huge_len = 100u32.to_le_bytes();
-    corrupt[raw_len_idx..raw_len_idx+4].copy_from_slice(&huge_len);
+    corrupt[raw_len_idx..raw_len_idx + 4].copy_from_slice(&huge_len);
     append_and_recover(corrupt);
 
     // 10. Trailing bytes / structurally inconsistent bytes after an otherwise complete record

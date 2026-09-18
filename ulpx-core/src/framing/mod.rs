@@ -32,6 +32,7 @@ pub mod length_prefix;
 pub mod newline;
 
 use std::fmt;
+use std::ops::Range;
 
 /// Maximum frame size accepted by all built-in framers (64 MiB).
 ///
@@ -58,17 +59,42 @@ pub const MAX_FRAME_BYTES: usize = 64 * 1024 * 1024; // 64 MiB
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FramedRecord {
     raw_bytes: Vec<u8>,
+    byte_range: Option<Range<usize>>,
 }
 
 impl FramedRecord {
     /// Constructs a `FramedRecord` preserving the supplied bytes exactly.
     pub fn new(raw_bytes: Vec<u8>) -> Self {
-        FramedRecord { raw_bytes }
+        FramedRecord {
+            raw_bytes,
+            byte_range: None,
+        }
     }
 
-    /// Returns a read-only view of the preserved frame bytes.
+    /// Creates a new `FramedRecord` while retaining its original slice boundary mapping.
+    pub fn with_byte_range(raw_bytes: Vec<u8>, range: Range<usize>) -> Self {
+        Self {
+            raw_bytes,
+            byte_range: Some(range),
+        }
+    }
+
+    /// Returns a reference to the framed payload representation.
+    ///
+    /// This represents the logic-specific framing payload (e.g., stripping network
+    /// headers or line delimiters) which is passed to parsers. It does NOT always
+    /// reflect the exact original source bytes.
     pub fn as_bytes(&self) -> &[u8] {
         &self.raw_bytes
+    }
+
+    /// Returns the exact original source-buffer byte range, if available.
+    ///
+    /// When populated, this range corresponds to the exact sequence of bytes in the
+    /// `input` slice passed to `Framer::frame_all()`. This enables lossless preservation
+    /// of the original telemetry (including delimiters or transport headers).
+    pub fn byte_range(&self) -> Option<Range<usize>> {
+        self.byte_range.clone()
     }
 
     /// Consumes the record and returns ownership of the frame bytes.

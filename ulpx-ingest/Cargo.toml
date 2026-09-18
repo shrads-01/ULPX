@@ -5,3 +5,15 @@ edition = "2021"
 
 [lib]
 path = "src/lib.rs"
+
+[[bin]]
+name = "ulpx"
+path = "src/main.rs"
+
+[dependencies]
+ulpx-core = { path = "../ulpx-core" }
+sha2 = "0.11"
+ulpx-replay = { path = "../ulpx-replay" }
+ulpx-infer = { path = "../ulpx-infer" }
+ulpx-mapping = { path = "../ulpx-mapping" }
+ulpx-ir = { path = "../ulpx-ir" }

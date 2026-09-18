@@ -58,7 +58,10 @@ impl Framer for NewlineFramer {
                             Some(FrameError::OversizedFrame(record_bytes.len())),
                         );
                     }
-                    records.push(FramedRecord::new(record_bytes.to_vec()));
+                    records.push(FramedRecord::with_byte_range(
+                        record_bytes.to_vec(),
+                        start..end + 1,
+                    ));
                     start = end + 1; // skip past the '\n'
                 }
             }

@@ -101,6 +101,14 @@ dependencies = [
 [[package]]
 name = "ulpx-ingest"
 version = "0.1.0"
+dependencies = [
+ "sha2",
+ "ulpx-core",
+ "ulpx-infer",
+ "ulpx-ir",
+ "ulpx-mapping",
+ "ulpx-replay",
+]
 
 [[package]]
 name = "ulpx-ir"

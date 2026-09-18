@@ -6,9 +6,9 @@
 //! only the payload bytes are preserved.
 //!
 //! ```text
-//! ┌──────────────────┬────────────────────────────────┐
-//! │  length (4 B BE) │  payload bytes (length octets) │
-//! └──────────────────┴────────────────────────────────┘
+//! â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+//! â”‚  length (4 B BE) â”‚  payload bytes (length octets) â”‚
+//! â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 //! ```
 //!
 //! # Incomplete input
@@ -67,7 +67,10 @@ impl Framer for LengthPrefixFramer {
             }
 
             let payload = input[payload_start..payload_end].to_vec();
-            records.push(FramedRecord::new(payload));
+            records.push(FramedRecord::with_byte_range(
+                payload,
+                payload_start..payload_end,
+            ));
             cursor = payload_end;
         }
     }

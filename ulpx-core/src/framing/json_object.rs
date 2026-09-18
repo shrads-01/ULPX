@@ -1,16 +1,16 @@
 //! JSON-object framing strategy.
 //!
-//! Scans the input for complete, top-level JSON object boundaries — i.e., a
+//! Scans the input for complete, top-level JSON object boundaries â€” i.e., a
 //! `{` byte that is matched by its closing `}` at brace depth 0.
 //!
 //! # Limitations (intentionally documented)
 //!
-//! - Only top-level **objects** (`{…}`) are supported.  Arrays, strings,
+//! - Only top-level **objects** (`{â€¦}`) are supported.  Arrays, strings,
 //!   numbers, or `true`/`false`/`null` at the top level are not valid frames
 //!   and produce [`FrameError::Malformed`].
 //! - String literals inside the JSON are tracked for nesting purposes, but
 //!   the contents are not validated; malformed escape sequences inside strings
-//!   do not cause a `Malformed` error — only a structural mismatch (unbalanced
+//!   do not cause a `Malformed` error â€” only a structural mismatch (unbalanced
 //!   braces, unclosed strings) does.
 //! - Input must be UTF-8 encoded JSON.  Non-UTF-8 bytes produce
 //!   [`FrameError::Malformed`].
