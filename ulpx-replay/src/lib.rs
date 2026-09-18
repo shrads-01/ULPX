@@ -1,222 +1,205 @@
+pub mod diff;
+pub mod interpretation;
+
 use std::time::SystemTime;
 use ulpx_core::event::EventId;
-use ulpx_core::framing::{FrameError, Framer};
-use ulpx_core::integrity::VerificationResult;
+use ulpx_core::framing::Framer;
 use ulpx_core::parser::{ParserError, ParserRegistry, ParserResult};
 use ulpx_core::storage::{EvidenceStore, StoreError};
 use ulpx_infer::engine::InferenceEngine;
-use ulpx_infer::model::InferenceOutcome;
+use ulpx_infer::model::{AbstentionReason, InferenceOutcome};
 use ulpx_ir::convert::IrConverter;
-use ulpx_ir::model::EventIr;
 use ulpx_mapping::engine::MappingEngine;
-use ulpx_mapping::model::CanonicalEvent;
 
-/// Top-level result of a replay operation for a single source event.
-#[derive(Debug, Clone)]
-pub struct ReplayResult {
-    pub source_event_id: EventId,
-    /// Whether the integrity verification was successful before processing
-    pub integrity_verified: bool,
-    pub integrity_error: Option<VerificationResult>,
-    /// System time when this replay was executed (metadata only, does not alter payload)
-    pub replay_timestamp: SystemTime,
-    /// Outcomes for each framed record extracted from the source event
-    pub record_outcomes: Vec<RecordReplayOutcome>,
-    /// Any frame error encountered at the end of the byte stream
-    pub trailing_frame_error: Option<FrameError>,
-}
+use crate::interpretation::{
+    ComponentConfig, FrameExecution, FrameInterpretation, InferenceExecution, Interpretation,
+    InterpretationId, PipelineConfiguration,
+};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ParserOutcome {
-    /// The parser successfully extracted fields.
     Success(ParserResult),
-    /// The input was explicitly unsupported, malformed, or hit a resource limit.
     Failed(ParserError),
-    /// No parser matched (via fallback) or parsing abstained.
     Abstained,
-}
-
-#[derive(Debug, Clone)]
-pub struct RecordReplayOutcome {
-    /// The exactly preserved frame bytes
-    pub frame_bytes: Vec<u8>,
-
-    /// The parser that was actually executed, if any
-    pub parser_id: Option<String>,
-    pub parser_version: Option<String>,
-
-    /// The inference decision, if fallback was needed
-    pub inference_decision: Option<InferenceOutcome>,
-
-    /// The result from the parser
-    pub parser_outcome: ParserOutcome,
-
-    /// If parsing succeeded, the IR conversion outcome
-    pub ir_event: Option<EventIr>,
-
-    /// If IR conversion succeeded, the Semantic Mapping outcome
-    pub canonical_event: Option<CanonicalEvent>,
 }
 
 pub struct ReplayPipeline<'a> {
     store: &'a dyn EvidenceStore,
     framer: &'a dyn Framer,
+    framer_config: ComponentConfig,
     parser_registry: &'a ParserRegistry,
     inference_engine: &'a InferenceEngine,
     ir_converter: &'a dyn IrConverter,
     mapping_engine: &'a MappingEngine,
+    mapper_config: ComponentConfig,
 }
 
 impl<'a> ReplayPipeline<'a> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         store: &'a dyn EvidenceStore,
         framer: &'a dyn Framer,
+        framer_config: ComponentConfig,
         parser_registry: &'a ParserRegistry,
         inference_engine: &'a InferenceEngine,
         ir_converter: &'a dyn IrConverter,
         mapping_engine: &'a MappingEngine,
+        mapper_config: ComponentConfig,
     ) -> Self {
         Self {
             store,
             framer,
+            framer_config,
             parser_registry,
             inference_engine,
             ir_converter,
             mapping_engine,
+            mapper_config,
         }
     }
 
-    /// Replays a stored event through the full analytical pipeline.
-    pub fn replay(&self, event_id: &EventId) -> Result<ReplayResult, StoreError> {
+    pub fn replay(&self, event_id: &EventId) -> Result<Interpretation, StoreError> {
         let raw_event = self.store.retrieve(event_id)?;
-
         let verify_result = ulpx_core::integrity::verify_chain(self.store, event_id)?;
-        if !verify_result.is_success() {
-            return Ok(ReplayResult {
+        let integrity_verified = verify_result.is_success();
+        let mut integrity_error = None;
+
+        if !integrity_verified {
+            integrity_error = Some(verify_result);
+        }
+
+        let parser_reg_config = self
+            .parser_registry
+            .configuration_identity()
+            .into_iter()
+            .map(|(id, version)| ComponentConfig { id, version })
+            .collect();
+
+        let pipeline_config = PipelineConfiguration {
+            framer: self.framer_config.clone(),
+            mapper: self.mapper_config.clone(),
+            parser_registry: parser_reg_config,
+            inference_detectors: self.inference_engine.configuration_identity(),
+        };
+
+        if !integrity_verified {
+            let id = InterpretationId::generate(event_id, &pipeline_config).unwrap();
+            return Ok(Interpretation {
+                id,
                 source_event_id: event_id.clone(),
-                integrity_verified: false,
-                integrity_error: Some(verify_result),
-                replay_timestamp: SystemTime::now(),
-                record_outcomes: Vec::new(),
+                pipeline_config,
+                frames: Vec::new(),
                 trailing_frame_error: None,
+                created_at: SystemTime::now(),
+                integrity_verified: false,
+                integrity_error,
             });
         }
 
         let (frames, trailing_error) = self.framer.frame_all(raw_event.as_bytes());
-        let mut record_outcomes = Vec::with_capacity(frames.len());
+        let mut frame_interpretations = Vec::with_capacity(frames.len());
 
-        for frame in frames {
+        for (i, frame) in frames.into_iter().enumerate() {
             let frame_bytes = frame.as_bytes().to_vec();
-            let mut outcome = RecordReplayOutcome {
-                frame_bytes: frame_bytes.clone(),
-                parser_id: None,
-                parser_version: None,
-                inference_decision: None,
-                parser_outcome: ParserOutcome::Abstained,
-                ir_event: None,
-                canonical_event: None,
-            };
+            let mut parser_used = None;
+            let mut inference = InferenceExecution::NotInvoked;
+            let mut parser_outcome;
+            let mut inference_decision = None;
 
-            // Attempt fast path via registry
             let result = self.parser_registry.parse_first(&frame);
             match result {
                 Ok(parsed) => {
-                    outcome.parser_id = Some(parsed.parser_id.clone());
-                    outcome.parser_version = Some(parsed.parser_version.to_string());
-                    outcome.parser_outcome = ParserOutcome::Success(parsed);
+                    parser_used = Some(ComponentConfig {
+                        id: parsed.parser_id.clone(),
+                        version: parsed.parser_version.to_string(),
+                    });
+                    parser_outcome = ParserOutcome::Success(parsed);
                 }
                 Err(err) => {
-                    // For Unsupported or Malformed on fast path, we fall back to inference
-                    outcome.parser_outcome = ParserOutcome::Failed(err);
+                    parser_outcome = ParserOutcome::Failed(err);
                 }
             }
 
-            // If fast path failed with Unsupported or abstained, attempt inference
             if matches!(
-                outcome.parser_outcome,
+                parser_outcome,
                 ParserOutcome::Failed(ParserError::Unsupported) | ParserOutcome::Abstained
             ) {
                 let inference_res = self
                     .inference_engine
                     .infer(&frame, Some(self.parser_registry));
-                outcome.inference_decision = Some(inference_res.outcome.clone());
 
-                if let InferenceOutcome::Recognized { candidate, .. } = inference_res.outcome {
-                    // Re-run the recommended parser
-                    if let Some(parser) = self.parser_registry.get(&candidate.parser_id) {
-                        match parser.parse(&frame) {
-                            Ok(parsed) => {
-                                outcome.parser_id = Some(parsed.parser_id.clone());
-                                outcome.parser_version = Some(parsed.parser_version.to_string());
-                                outcome.parser_outcome = ParserOutcome::Success(parsed);
-                            }
-                            Err(err) => {
-                                outcome.parser_outcome = ParserOutcome::Failed(err);
+                inference_decision = Some(inference_res.outcome.clone());
+
+                match &inference_res.outcome {
+                    InferenceOutcome::Recognized { candidate, .. } => {
+                        inference = InferenceExecution::InvokedRecognized {
+                            detector_id: candidate.format_name.clone(),
+                        };
+                        if let Some(parser) = self.parser_registry.get(&candidate.parser_id) {
+                            match parser.parse(&frame) {
+                                Ok(parsed) => {
+                                    parser_used = Some(ComponentConfig {
+                                        id: parsed.parser_id.clone(),
+                                        version: parsed.parser_version.to_string(),
+                                    });
+                                    parser_outcome = ParserOutcome::Success(parsed);
+                                }
+                                Err(err) => {
+                                    parser_outcome = ParserOutcome::Failed(err);
+                                }
                             }
                         }
+                    }
+                    InferenceOutcome::Abstained { reason, .. } => {
+                        let reason_str = match reason {
+                            AbstentionReason::EmptyInput => "EmptyInput",
+                            AbstentionReason::NoRecognizableStructure => "NoRecognizableStructure",
+                            AbstentionReason::InsufficientEvidence => "InsufficientEvidence",
+                            AbstentionReason::AmbiguousCandidates => "AmbiguousCandidates",
+                        };
+                        inference = InferenceExecution::InvokedAbstained {
+                            reason: reason_str.to_string(),
+                        };
                     }
                 }
             }
 
-            // If we have a successful parse, map to IR and Canonical
-            if let ParserOutcome::Success(ref parsed) = outcome.parser_outcome {
+            let mut canonical_event = None;
+            let mut ir_event_opt = None;
+            if let ParserOutcome::Success(ref parsed) = parser_outcome {
                 if let Some(ir) = self.ir_converter.convert(event_id.clone(), parsed) {
-                    outcome.canonical_event = self.mapping_engine.map(&ir);
-                    outcome.ir_event = Some(ir);
+                    canonical_event = self.mapping_engine.map(&ir);
+                    ir_event_opt = Some(ir);
                 }
             }
 
-            record_outcomes.push(outcome);
+            let execution = FrameExecution {
+                parser_used,
+                inference,
+            };
+
+            frame_interpretations.push(FrameInterpretation {
+                frame_index: i,
+                frame_bytes,
+                execution,
+                parser_outcome,
+                inference_decision,
+                canonical_event,
+                ir_event: ir_event_opt,
+            });
         }
 
-        Ok(ReplayResult {
+        let id = InterpretationId::generate(event_id, &pipeline_config).unwrap();
+
+        Ok(Interpretation {
+            id,
             source_event_id: event_id.clone(),
+            pipeline_config,
+            frames: frame_interpretations,
+            trailing_frame_error: trailing_error,
+            created_at: SystemTime::now(),
             integrity_verified: true,
             integrity_error: None,
-            replay_timestamp: SystemTime::now(),
-            record_outcomes,
-            trailing_frame_error: trailing_error,
         })
-    }
-}
-
-/// A deterministic comparison of two replay records, identifying meaningful changes.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RecordComparison {
-    pub parser_changed: bool,
-    pub fields_changed: bool,
-    pub inference_changed: bool,
-    pub mapping_changed: bool,
-}
-
-impl RecordComparison {
-    pub fn compare(old: &RecordReplayOutcome, new: &RecordReplayOutcome) -> Self {
-        let parser_changed =
-            old.parser_id != new.parser_id || old.parser_version != new.parser_version;
-
-        let fields_changed = match (&old.parser_outcome, &new.parser_outcome) {
-            (ParserOutcome::Success(old_res), ParserOutcome::Success(new_res)) => {
-                old_res.fields != new_res.fields
-            }
-            (old_o, new_o) => {
-                // If they transitioned between success and failure/abstain, fields changed
-                !matches!(
-                    (old_o, new_o),
-                    (ParserOutcome::Failed(_), ParserOutcome::Failed(_))
-                        | (ParserOutcome::Abstained, ParserOutcome::Abstained)
-                )
-            }
-        };
-
-        let inference_changed = old.inference_decision != new.inference_decision;
-
-        let mapping_changed = old.canonical_event != new.canonical_event;
-
-        Self {
-            parser_changed,
-            fields_changed,
-            inference_changed,
-            mapping_changed,
-        }
     }
 }

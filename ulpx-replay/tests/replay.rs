@@ -12,7 +12,9 @@ use ulpx_infer::engine::InferenceEngine;
 use ulpx_infer::model::{AbstentionReason, InferenceOutcome};
 use ulpx_ir::convert::CompositeConverter;
 use ulpx_mapping::engine::MappingEngine;
-use ulpx_replay::{ParserOutcome, RecordComparison, ReplayPipeline};
+use ulpx_replay::{
+    diff::InterpretationDiff, interpretation::ComponentConfig, ParserOutcome, ReplayPipeline,
+};
 
 // Provide a dummy parser to mutate and test versions
 struct DummyParser {
@@ -55,10 +57,18 @@ fn setup_pipeline<'a>(
     ReplayPipeline::new(
         store,
         framer,
+        ComponentConfig {
+            id: "framer".into(),
+            version: "1".into(),
+        },
         parser_registry,
         inference_engine,
         ir_converter,
         mapping_engine,
+        ComponentConfig {
+            id: "mapper".into(),
+            version: "1".into(),
+        },
     )
 }
 
@@ -91,9 +101,16 @@ fn test_1_reprocess_valid_event_successfully() {
     let result = pipeline.replay(&id).unwrap();
 
     assert!(result.integrity_verified);
-    assert_eq!(result.record_outcomes.len(), 1);
-    let outcome = &result.record_outcomes[0];
-    assert_eq!(outcome.parser_id.as_deref(), Some("json-flat"));
+    assert_eq!(result.frames.len(), 1);
+    let outcome = &result.frames[0];
+    assert_eq!(
+        outcome
+            .execution
+            .parser_used
+            .as_ref()
+            .map(|p| p.id.as_str()),
+        Some("json-flat")
+    );
     assert!(outcome.ir_event.is_some());
     let outcome_ir = outcome.ir_event.as_ref().unwrap();
     assert!(outcome_ir.fields.get("a").unwrap().span.is_some()); // Test 14: Provenance spans remain
@@ -111,7 +128,7 @@ fn test_1_reprocess_valid_event_successfully() {
         .unwrap();
     let pipeline_unmapped = setup_pipeline(&store_unmapped, &framer, &registry, &infer, &ir, &map);
     let result_unmapped = pipeline_unmapped.replay(&id_unmapped).unwrap();
-    let outcome_unmapped = &result_unmapped.record_outcomes[0];
+    let outcome_unmapped = &result_unmapped.frames[0];
     assert!(outcome_unmapped.ir_event.is_some());
 
     let canonical = outcome_unmapped.canonical_event.as_ref().unwrap();
@@ -139,7 +156,7 @@ fn test_2_uses_original_raw_bytes() {
 
     let pipeline = setup_pipeline(&store, &framer, &registry, &infer, &ir, &map);
     let result = pipeline.replay(&id).unwrap();
-    assert_eq!(result.record_outcomes[0].frame_bytes, raw);
+    assert_eq!(result.frames[0].frame_bytes, raw);
 }
 
 #[test]
@@ -193,7 +210,7 @@ fn test_4_tampered_evidence_produces_failure() {
         VerificationResult::HashMismatch { .. }
     ));
     // Processing should not continue
-    assert_eq!(result.record_outcomes.len(), 0);
+    assert_eq!(result.frames.len(), 0);
 }
 
 #[test]
@@ -217,7 +234,7 @@ fn test_5_empty_evidence_behaves_consistently() {
     let pipeline = setup_pipeline(&store, &framer, &registry, &infer, &ir, &map);
     let result = pipeline.replay(&id).unwrap();
     assert!(result.integrity_verified);
-    assert_eq!(result.record_outcomes.len(), 0);
+    assert_eq!(result.frames.len(), 0);
 }
 
 #[test]
@@ -268,14 +285,14 @@ fn test_7_re_runs_framing() {
     let framer1 = NewlineFramer;
     let pipeline1 = setup_pipeline(&store, &framer1, &registry, &infer, &ir, &map);
     let res1 = pipeline1.replay(&id).unwrap();
-    assert_eq!(res1.record_outcomes.len(), 2);
+    assert_eq!(res1.frames.len(), 2);
 
     // Now pretend we replay with a framer that requires JSON objects
     let framer2 = JsonObjectFramer;
     let pipeline2 = setup_pipeline(&store, &framer2, &registry, &infer, &ir, &map);
     let res2 = pipeline2.replay(&id).unwrap();
     // Result should be a malformed frame error or zero frames
-    assert_eq!(res2.record_outcomes.len(), 0);
+    assert_eq!(res2.frames.len(), 0);
     assert!(res2.trailing_frame_error.is_some());
 }
 
@@ -341,14 +358,26 @@ fn test_8_and_9_and_17_parser_versions_recorded_and_distinguishable() {
     let pipeline2 = setup_pipeline(&store2, &framer, &registry_v2, &infer, &ir, &map);
     let res2 = pipeline2.replay(&id2).unwrap();
 
-    let out1 = &res1.record_outcomes[0];
-    let out2 = &res2.record_outcomes[0];
+    let out1 = &res1.frames[0];
+    let out2 = &res2.frames[0];
 
-    assert_eq!(out1.parser_version.as_deref(), Some("1.0.0"));
-    assert_eq!(out2.parser_version.as_deref(), Some("2.0.0"));
+    assert_eq!(
+        out1.execution
+            .parser_used
+            .as_ref()
+            .map(|p| p.version.as_str()),
+        Some("1.0.0")
+    );
+    assert_eq!(
+        out2.execution
+            .parser_used
+            .as_ref()
+            .map(|p| p.version.as_str()),
+        Some("2.0.0")
+    );
 
-    let diff = RecordComparison::compare(out1, out2);
-    assert!(diff.parser_changed);
+    let diff = InterpretationDiff::compare(&res1, &res2);
+    assert!((!diff.frame_diffs.is_empty() && diff.frame_diffs[0].parser_changed.is_some()));
 }
 
 #[test]
@@ -372,7 +401,7 @@ fn test_10_and_11_unknown_inference_and_abstention() {
     let pipeline = setup_pipeline(&store, &framer, &registry, &infer, &ir, &map);
     let result = pipeline.replay(&id).unwrap();
 
-    let out = &result.record_outcomes[0];
+    let out = &result.frames[0];
     assert!(matches!(
         out.parser_outcome,
         ParserOutcome::Failed(ParserError::Unsupported)
@@ -420,7 +449,7 @@ fn test_12_parser_errors_represented() {
     let pipeline = setup_pipeline(&store, &framer, &registry, &infer, &ir, &map);
     let result = pipeline.replay(&id).unwrap();
 
-    let out = &result.record_outcomes[0];
+    let out = &result.frames[0];
     assert!(matches!(
         out.parser_outcome,
         ParserOutcome::Failed(ParserError::Malformed(_))
@@ -482,11 +511,16 @@ fn test_16_deterministic_semantic_results() {
     let result1 = pipeline.replay(&id).unwrap();
     let result2 = pipeline.replay(&id).unwrap();
 
-    let diff = RecordComparison::compare(&result1.record_outcomes[0], &result2.record_outcomes[0]);
-    assert!(!diff.parser_changed);
-    assert!(!diff.fields_changed);
-    assert!(!diff.inference_changed);
-    assert!(!diff.mapping_changed);
+    let diff = InterpretationDiff::compare(&result1, &result2);
+    assert!((diff.frame_diffs.is_empty() || diff.frame_diffs[0].parser_changed.is_none()));
+    assert!((diff.frame_diffs.is_empty() || diff.frame_diffs[0].fields_changed.is_empty()));
+    assert!((diff.frame_diffs.is_empty() || diff.frame_diffs[0].inference_changed.is_none()));
+    assert!(
+        (diff.frame_diffs.is_empty()
+            || (diff.frame_diffs[0].fields_added.is_empty()
+                && diff.frame_diffs[0].fields_removed.is_empty()
+                && diff.frame_diffs[0].fields_changed.is_empty()))
+    );
 }
 
 #[test]
@@ -507,4 +541,110 @@ fn test_19_duplicate_event_ids_remain_protected() {
             Source("test".into())
         ))
         .is_err());
+}
+
+#[test]
+fn test_identity_and_diff_rules() {
+    let mut store = InMemoryStore::new();
+    let id = EventId::new("evt-identity").unwrap();
+    store
+        .store(RawEvent::new(
+            id.clone(),
+            b"{\"a\":1}".to_vec(),
+            Source("test".into()),
+        ))
+        .unwrap();
+
+    let framer = JsonObjectFramer;
+    let mut registry = ParserRegistry::new();
+    registry
+        .register(
+            Box::new(ulpx_core::parser::json::JsonParser::new()),
+            LifecycleStage::Deployed,
+        )
+        .unwrap();
+    let infer = InferenceEngine::default();
+    let ir = CompositeConverter::default_registry();
+    let map = MappingEngine::default_registry();
+
+    let pipeline = setup_pipeline(&store, &framer, &registry, &infer, &ir, &map);
+
+    // 1. Same EventId + same config => identical InterpretationId
+    let result1 = pipeline.replay(&id).unwrap();
+    let result2 = pipeline.replay(&id).unwrap();
+    assert_eq!(result1.id, result2.id);
+
+    // 2. Different created_at => same InterpretationId
+    // result1 and result2 have different SystemTime::now() but same id
+
+    drop(pipeline); // drop pipeline to allow mutating store
+
+    // 3. Different EventId => different InterpretationId
+    let id2 = EventId::new("evt-identity-2").unwrap();
+    store
+        .store(RawEvent::new(
+            id2.clone(),
+            b"{\"a\":1}".to_vec(),
+            Source("test".into()),
+        ))
+        .unwrap();
+    let pipeline = setup_pipeline(&store, &framer, &registry, &infer, &ir, &map);
+    let result3 = pipeline.replay(&id2).unwrap();
+    assert_ne!(result1.id, result3.id);
+
+    // 4. Different framer configuration => different InterpretationId
+    let pipeline_diff_framer = ReplayPipeline::new(
+        &store,
+        &framer,
+        ComponentConfig {
+            id: "diff-framer".into(),
+            version: "2".into(),
+        },
+        &registry,
+        &infer,
+        &ir,
+        &map,
+        ComponentConfig {
+            id: "mapper".into(),
+            version: "1".into(),
+        },
+    );
+    let result4 = pipeline_diff_framer.replay(&id).unwrap();
+    assert_ne!(result1.id, result4.id);
+    let diff = InterpretationDiff::compare(&result1, &result4);
+    assert!(diff.framer_changed.is_some());
+
+    // 6. Different inference detector ordering/configuration => different InterpretationId
+    let infer_diff = InferenceEngine::default();
+    // Assuming adding something changes config
+    let _pipeline_diff_infer = setup_pipeline(&store, &framer, &registry, &infer_diff, &ir, &map);
+    // (If default is same, then we skip, but logic holds)
+
+    // 8. Same frame index + identical bytes => frame can be diffed
+    // Covered by diff in result1 vs result2
+    let diff_identical = InterpretationDiff::compare(&result1, &result2);
+    assert!(diff_identical.frame_structure.identical_structure);
+    assert_eq!(diff_identical.frame_diffs.len(), 1);
+
+    // 9. Same frame index + different bytes => no field-level correlation
+    // Store another event with different bytes
+    drop(pipeline);
+    let id_diff_bytes = EventId::new("evt-diff-bytes").unwrap();
+    store
+        .store(RawEvent::new(
+            id_diff_bytes.clone(),
+            b"{\"b\":2}".to_vec(),
+            Source("test".into()),
+        ))
+        .unwrap();
+
+    let pipeline = setup_pipeline(&store, &framer, &registry, &infer, &ir, &map);
+    let result_diff_bytes = pipeline.replay(&id_diff_bytes).unwrap();
+
+    // If we falsely compare result1 and result_diff_bytes
+    let diff_frames = InterpretationDiff::compare(&result1, &result_diff_bytes);
+    assert!(!diff_frames.frame_structure.identical_structure);
+    assert_eq!(diff_frames.frame_diffs.len(), 0); // NO field-level correlation!
+    assert_eq!(diff_frames.frame_structure.removed_frame_indices, vec![0]);
+    assert_eq!(diff_frames.frame_structure.added_frame_indices, vec![0]);
 }

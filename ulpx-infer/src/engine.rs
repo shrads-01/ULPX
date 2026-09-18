@@ -68,6 +68,14 @@ pub struct InferenceEngine {
 
 impl InferenceEngine {
     /// Create an empty engine (no detectors).
+    /// Returns the deterministic sequence of registered detector identities.
+    pub fn configuration_identity(&self) -> Vec<String> {
+        self.detectors
+            .iter()
+            .map(|(id, _)| id.to_string())
+            .collect()
+    }
+
     pub fn new() -> Self {
         InferenceEngine {
             detectors: Vec::new(),

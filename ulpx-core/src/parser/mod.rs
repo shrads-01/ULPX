@@ -310,6 +310,18 @@ impl ParserRegistry {
     }
 
     /// Returns `true` if no parsers are registered.
+    /// Returns the deterministic sequence of registered parsers.
+    pub fn configuration_identity(&self) -> Vec<(String, String)> {
+        self.order
+            .iter()
+            .filter_map(|id| {
+                self.parsers
+                    .get(id)
+                    .map(|(p, _)| (id.clone(), p.metadata().version.to_string()))
+            })
+            .collect()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.parsers.is_empty()
     }
