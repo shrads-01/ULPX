@@ -1,4 +1,4 @@
-use ulpx_core::event::{EventId, RawEvent, Source};
+﻿use ulpx_core::event::{EventId, RawEvent, Source};
 use ulpx_core::framing::json_object::JsonObjectFramer;
 use ulpx_core::framing::newline::NewlineFramer;
 use ulpx_core::framing::{FrameError, FramedRecord, Framer};
@@ -704,4 +704,50 @@ fn test_replay_with_local_store() {
     assert_eq!(interp.frames.len(), 1);
 
     let _ = fs::remove_file(path);
+}
+
+#[test]
+fn test_replay_with_reopened_local_store() {
+    let path = get_temp_path();
+    let id = EventId::new("local-replay-reopen").unwrap();
+    let original_bytes = b"{\"msg\":\"test\"}".to_vec();
+    {
+        let mut store = LocalEvidenceStore::new(&path).unwrap();
+        let raw = RawEvent::new(id.clone(), original_bytes.clone(), Source("src".into()));
+        store.store(raw).unwrap();
+    }
+
+    let store = LocalEvidenceStore::new(&path).unwrap();
+    let registry = ParserRegistry::new();
+    let infer = InferenceEngine::with_defaults();
+    let ir = CompositeConverter::new();
+    let map = MappingEngine::new();
+    let framer = JsonObjectFramer;
+
+    let pipeline = ReplayPipeline::new(
+        &store,
+        &framer,
+        ComponentConfig {
+            id: "json".into(),
+            version: "1".into(),
+        },
+        &registry,
+        &infer,
+        &ir,
+        &map,
+        ComponentConfig {
+            id: "map".into(),
+            version: "1".into(),
+        },
+    );
+
+    let interp1 = pipeline.replay(&id).expect("should process");
+    assert!(interp1.integrity_verified);
+    let interp2 = pipeline.replay(&id).expect("should process again");
+    assert_eq!(interp1.id, interp2.id);
+
+    let raw = store.retrieve(&id).unwrap();
+    assert_eq!(raw.as_bytes(), original_bytes.as_slice());
+
+    let _ = std::fs::remove_file(path);
 }

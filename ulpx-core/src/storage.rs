@@ -100,6 +100,36 @@ use std::path::Path;
 use std::sync::Mutex;
 
 /// Persistent local evidence store implementation.
+///
+/// This store operates entirely offline, using an append-only persistence model
+/// to ensure that successfully persisted original raw evidence is never modified or
+/// overwritten. It is designed for single-process environments and uses interior
+/// mutability (Mutex) for thread-safe access within the process.
+///
+/// # On-Disk Record Structure
+/// Each appended record follows a deterministic binary structure:
+/// [Magic (4 bytes)][Total Length (4 bytes)][EventId Len][EventId]...
+/// ...[Ingestion Timestamp][Source Len][Source][Integrity Metadata][Raw Length][Raw Bytes]
+///
+/// # Startup Recovery Behavior
+/// During initialization, the store sequentially scans the file, validating each
+/// record's structure. If a truncated or corrupt record is encountered at the tail
+/// (e.g., due to an interrupted write or system crash), the scanner safely halts,
+/// truncates the file back to the last known-good boundary, and resumes operation
+/// cleanly. Malformed trailing data cannot become an indexed event.
+/// This recovery policy solely concerns the uncommitted/corrupt tail of the file.
+///
+/// # Integrity and Validation
+/// Cryptographic evidence-chain verification is distinct from structural file parsing.
+/// Cryptographic checks apply to the logical Event chain via erify_chain.
+/// The store intentionally has no per-record CRC on the structural framing;
+/// the store relies on length bounds checking for safety, falling back to
+/// truncation if a record is structurally malformed or cut off.
+///
+/// # Limitations
+/// - The log file grows indefinitely (unbounded log growth, no compaction or rotation is implemented).
+/// - The entire index is held in an in-memory HashMap, requiring $O(N)$ startup time
+///   and memory proportional to the number of stored events.
 pub struct LocalEvidenceStore {
     file: Mutex<File>,
     index: HashMap<EventId, u64>,
