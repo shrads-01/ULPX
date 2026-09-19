@@ -15,4 +15,5 @@ members = [
     "ulpx-entity",
     "ulpx-opensearch",
     "ulpx-bench",
+    "ulpx-drift",
 ]

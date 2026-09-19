@@ -3415,6 +3415,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ulpx-drift"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "ulpx-core",
+ "ulpx-ir",
+ "ulpx-mapping",
+]
+
+[[package]]
 name = "ulpx-e2e"
 version = "0.1.0"
 dependencies = [
