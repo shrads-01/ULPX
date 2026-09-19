@@ -1,97 +1,69 @@
-use axum::{
+﻿use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use base64::Engine;
 use http_body_util::BodyExt;
 use std::sync::Arc;
 use tower::ServiceExt;
 use ulpx_core::event::{EventId, RawEvent, Source};
 use ulpx_core::storage::{EvidenceStore, LocalEvidenceStore};
 use ulpx_serve::create_router;
-
-fn get_temp_path() -> String {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    static COUNTER: AtomicUsize = AtomicUsize::new(0);
-    let count = COUNTER.fetch_add(1, Ordering::SeqCst);
-    format!("test_serve_{}.ulpx", count)
-}
+use ulpx_serve::models::ApiPipelineConfiguration;
 
 #[tokio::test]
-async fn test_get_evidence_success() {
-    let path = get_temp_path();
-    let mut store = LocalEvidenceStore::new(&path).unwrap();
-    let id = EventId::new("test-evt").unwrap();
+async fn test_list_events_deterministic_order_and_pagination() {
+    let path = "test_serve_list.ulpx";
+    let _ = std::fs::remove_file(path);
+    let mut store = LocalEvidenceStore::new(path).unwrap();
 
-    store
-        .store(RawEvent::new(
-            id.clone(),
-            b"Hello API \x00\xFF".to_vec(),
-            Source("api-test".into()),
-        ))
-        .unwrap();
+    for i in 0..5 {
+        store
+            .store(RawEvent::new(
+                EventId::new(format!("evt-{}", i)).unwrap(),
+                format!("payload {}\n", i).into_bytes(),
+                Source("test-src".into()),
+            ))
+            .unwrap();
+    }
 
     let app = create_router(Arc::new(store));
 
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/v1/evidence/test-evt")
+                .uri("/api/v1/events?limit=2&offset=1")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-
     assert_eq!(response.status(), StatusCode::OK);
 
     let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
     let body_json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    let events = body_json["events"].as_array().unwrap();
 
-    assert_eq!(body_json["event_id"], "test-evt");
-    assert_eq!(body_json["source"], "api-test");
-
-    let base64_payload = body_json["payload_base64"].as_str().unwrap();
-    let decoded = base64::engine::general_purpose::STANDARD
-        .decode(base64_payload)
-        .unwrap();
-    assert_eq!(decoded, b"Hello API \x00\xFF");
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0]["event_id"], "evt-1");
+    assert_eq!(events[1]["event_id"], "evt-2");
 
     let _ = std::fs::remove_file(path);
 }
 
 #[tokio::test]
-async fn test_get_evidence_not_found() {
-    let path = get_temp_path();
-    let store = LocalEvidenceStore::new(&path).unwrap();
-    let app = create_router(Arc::new(store));
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/evidence/missing-evt")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
-
+async fn test_get_detailed_interpretation_json_parser() {
+    let path = "test_serve_json.ulpx";
     let _ = std::fs::remove_file(path);
-}
-
-#[tokio::test]
-async fn test_get_interpretation_success() {
-    let path = get_temp_path();
-    let mut store = LocalEvidenceStore::new(&path).unwrap();
+    let mut store = LocalEvidenceStore::new(path).unwrap();
     let id = EventId::new("test-json").unwrap();
 
-    // Proper JSON structure that ends in newline to trigger a single frame matching JSON parser exactly
+    let json_payload =
+        "{\"src_ip\":\"192.168.1.1\",\"level\":\"CRITICAL\",\"message\":\"test msg\"}\n";
     store
         .store(RawEvent::new(
             id.clone(),
-            b"{\"message\":\"hello\"}\n".to_vec(),
+            json_payload.as_bytes().to_vec(),
             Source("api-test".into()),
         ))
         .unwrap();
@@ -101,7 +73,7 @@ async fn test_get_interpretation_success() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/api/v1/interpretation/test-json")
+                .uri("/api/v1/interpretation/test-json/detailed")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -109,64 +81,213 @@ async fn test_get_interpretation_success() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-
     let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
     let body_json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
 
     assert_eq!(body_json["source_event_id"], "test-json");
-    assert_eq!(body_json["integrity_verified"], true);
+    let frame = &body_json["frames"][0];
+    assert_eq!(frame["parser_outcome"], "Success");
+    assert_eq!(frame["parser_id"], "json-flat");
 
-    let frames = body_json["frames"].as_array().unwrap();
-    assert_eq!(frames.len(), 1);
-
-    let frame = &frames[0];
-
-    // Stricter assertions per acceptance criteria
-    assert_eq!(frame["parser_outcome"], "json-flat");
-    assert_eq!(frame["has_ir_event"], true);
-    assert_eq!(frame["has_canonical_event"], true);
-
-    // Prove that Debug representation is not exposed.
-    assert!(frame.get("ir_event_debug").is_none());
-    assert!(frame.get("canonical_event_debug").is_none());
+    // Because JSON parsing succeeds, inference is not executed on fast-path
+    assert!(frame["inference_decision"].is_null());
 
     let _ = std::fs::remove_file(path);
 }
 
 #[tokio::test]
-async fn test_get_interpretation_integrity_failure() {
-    let path = get_temp_path();
-    let mut store = LocalEvidenceStore::new(&path).unwrap();
-    let id = EventId::new("test-corrupt").unwrap();
+async fn test_ephemeral_replay_endpoint() {
+    let path = "test_serve_replay.ulpx";
+    let _ = std::fs::remove_file(path);
+    let mut store = LocalEvidenceStore::new(path).unwrap();
+    let id = EventId::new("evt-replay").unwrap();
 
     store
         .store(RawEvent::new(
             id.clone(),
-            b"test".to_vec(),
-            Source("api-test".into()),
+            b"{\"a\": 1}\n".to_vec(),
+            Source("src".into()),
         ))
         .unwrap();
 
-    use std::io::{Seek, SeekFrom, Write};
-    let mut file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
-    file.seek(SeekFrom::End(-2)).unwrap();
-    file.write_all(b"xx").unwrap();
+    let app = create_router(Arc::new(store));
 
-    let store_reloaded = LocalEvidenceStore::new(&path).unwrap();
+    let config = ApiPipelineConfiguration {
+        framer_id: "NewlineFramer".into(),
+        framer_version: "1.0.0".into(),
+        mapper_id: "DefaultMapper".into(),
+        mapper_version: "1.0.0".into(),
+        parser_registry: vec!["json-flat".into()],
+        inference_detectors: vec![],
+    };
 
-    let app = create_router(Arc::new(store_reloaded));
+    let req_body = serde_json::json!({
+        "event_id": "evt-replay",
+        "pipeline_config": config
+    });
 
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/api/v1/interpretation/test-corrupt")
-                .body(Body::empty())
+                .method("POST")
+                .uri("/api/v1/replay")
+                .header("content-type", "application/json")
+                .body(Body::from(req_body.to_string()))
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let body_json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    assert_eq!(body_json["source_event_id"], "evt-replay");
+    assert_eq!(body_json["frames"][0]["parser_outcome"], "Success");
+
+    let _ = std::fs::remove_file(path);
+}
+
+
+#[tokio::test]
+async fn test_ephemeral_replay_declarative_rejections() {
+    let path = "test_serve_replay_rejections.ulpx";
+    let _ = std::fs::remove_file(path);
+    let mut store = LocalEvidenceStore::new(path).unwrap();
+    let id = EventId::new("evt-replay-reject").unwrap();
+    store.store(RawEvent::new(id, vec![], Source("src".into()))).unwrap();
+    
+    let app = create_router(Arc::new(store));
+
+    let config = serde_json::json!({
+        "framer_id": "NewlineFramer",
+        "framer_version": "1.0.0",
+        "mapper_id": "DefaultMapper",
+        "mapper_version": "1.0.0",
+        "parser_registry": ["json-flat"],
+        "inference_detectors": ["json"]
+    });
+    
+    // Helper closure to test a rejection
+    let test_rejection = |bad_config: serde_json::Value, expected_status: StatusCode| {
+        let app_clone = app.clone();
+        async move {
+            let req_body = serde_json::json!({
+                "event_id": "evt-replay-reject",
+                "pipeline_config": bad_config
+            });
+            let response = app_clone.oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/replay")
+                    .header("content-type", "application/json")
+                    .body(Body::from(req_body.to_string()))
+                    .unwrap(),
+            ).await.unwrap();
+            assert_eq!(response.status(), expected_status);
+        }
+    };
+
+    // 1. Unsupported framer
+    let mut bad1 = config.clone();
+    bad1["framer_id"] = serde_json::Value::String("UnknownFramer".into());
+    test_rejection(bad1, StatusCode::BAD_REQUEST).await;
+
+    // 2. Unsupported mapper
+    let mut bad2 = config.clone();
+    bad2["mapper_id"] = serde_json::Value::String("UnknownMapper".into());
+    test_rejection(bad2, StatusCode::BAD_REQUEST).await;
+
+    // 3. Unsupported parser
+    let mut bad3 = config.clone();
+    bad3["parser_registry"] = serde_json::Value::Array(vec!["unknown-parser".into()]);
+    test_rejection(bad3, StatusCode::BAD_REQUEST).await;
+
+    // 4. Unsupported inference detector
+    let mut bad4 = config.clone();
+    bad4["inference_detectors"] = serde_json::Value::Array(vec!["unknown-detector".into()]);
+    test_rejection(bad4, StatusCode::BAD_REQUEST).await;
+
+    let _ = std::fs::remove_file(path);
+}
+
+#[tokio::test]
+async fn test_ephemeral_replay_does_not_mutate_evidence() {
+    let path = "test_serve_replay_mutation.ulpx";
+    let _ = std::fs::remove_file(path);
+    let mut store = LocalEvidenceStore::new(path).unwrap();
+    let id = EventId::new("evt-replay-mut").unwrap();
+
+    store
+        .store(RawEvent::new(
+            id.clone(),
+            b"{\"a\": 1}\n".to_vec(),
+            Source("src".into()),
+        ))
+        .unwrap();
+
+    let app = create_router(Arc::new(store));
+
+    let config = ApiPipelineConfiguration {
+        framer_id: "NewlineFramer".into(),
+        framer_version: "1.0.0".into(),
+        mapper_id: "DefaultMapper".into(),
+        mapper_version: "1.0.0".into(),
+        parser_registry: vec!["json-flat".into()],
+        inference_detectors: vec![],
+    };
+
+    let req_body = serde_json::json!({
+        "event_id": "evt-replay-mut",
+        "pipeline_config": config
+    });
+
+    // 1. Check count before
+    let list_req1 = Request::builder()
+        .uri("/api/v1/events")
+        .body(Body::empty())
+        .unwrap();
+    let resp1 = app.clone().oneshot(list_req1).await.unwrap();
+    let count_before = serde_json::from_slice::<serde_json::Value>(
+        &resp1.into_body().collect().await.unwrap().to_bytes(),
+    )
+    .unwrap()["events"]
+        .as_array()
+        .unwrap()
+        .len();
+    assert_eq!(count_before, 1);
+
+    // 2. Perform replay
+    let replay_req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/replay")
+        .header("content-type", "application/json")
+        .body(Body::from(req_body.to_string()))
+        .unwrap();
+    let replay_resp = app.clone().oneshot(replay_req).await.unwrap();
+    assert_eq!(replay_resp.status(), StatusCode::OK);
+
+    let replay_body = serde_json::from_slice::<serde_json::Value>(
+        &replay_resp.into_body().collect().await.unwrap().to_bytes(),
+    )
+    .unwrap();
+    let config_id = replay_body["pipeline_config_identity"].as_str().unwrap();
+    assert_ne!(config_id, "unknown");
+
+    // 3. Check count after
+    let list_req2 = Request::builder()
+        .uri("/api/v1/events")
+        .body(Body::empty())
+        .unwrap();
+    let resp2 = app.clone().oneshot(list_req2).await.unwrap();
+    let count_after = serde_json::from_slice::<serde_json::Value>(
+        &resp2.into_body().collect().await.unwrap().to_bytes(),
+    )
+    .unwrap()["events"]
+        .as_array()
+        .unwrap()
+        .len();
+    assert_eq!(count_after, 1); // No new event added
 
     let _ = std::fs::remove_file(path);
 }

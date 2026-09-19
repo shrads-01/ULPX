@@ -199,6 +199,9 @@ struct FailingStore {
     stored: usize,
 }
 impl EvidenceStore for FailingStore {
+    fn list_events(&self, _: usize, _: usize) -> Vec<ulpx_core::event::EventMetadata> {
+        vec![]
+    }
     fn store(&mut self, _event: RawEvent) -> Result<(), StoreError> {
         if self.stored >= self.fail_after {
             return Err(StoreError::Internal("mock failure".into()));

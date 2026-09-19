@@ -322,6 +322,9 @@ struct CyclicStore {
     e2: RawEvent,
 }
 impl ulpx_core::storage::EvidenceStore for CyclicStore {
+    fn list_events(&self, _: usize, _: usize) -> Vec<ulpx_core::event::EventMetadata> {
+        vec![]
+    }
     fn store(&mut self, _: RawEvent) -> Result<(), ulpx_core::storage::StoreError> {
         Ok(())
     }

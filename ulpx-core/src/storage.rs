@@ -11,7 +11,7 @@ pub enum StoreError {
     NotFound,
     /// The EventId already exists in the store; insertion is rejected.
     DuplicateId,
-    /// Generic internal error (e.g., out‑of‑memory).
+    /// Generic internal error (e.g., outÃ¢â‚¬â€˜ofÃ¢â‚¬â€˜memory).
     Internal(String),
 }
 
@@ -27,31 +27,36 @@ impl Display for StoreError {
 
 impl std::error::Error for StoreError {}
 
-/// Trait defining the loss‑less evidence‑storage contract.
+/// Trait defining the lossÃ¢â‚¬â€˜less evidenceÃ¢â‚¬â€˜storage contract.
 pub trait EvidenceStore {
+    /// Deterministically enumerate stored events.
+    fn list_events(&self, offset: usize, limit: usize) -> Vec<EventMetadata>;
+
     /// Store a `RawEvent`. The implementation must not modify the raw bytes
     /// or the associated `EventId`.
     fn store(&mut self, event: RawEvent) -> Result<(), StoreError>;
 
     /// Retrieve an event by its `EventId`. The returned `RawEvent` must be
-    /// identical (byte‑for‑byte) to the one that was stored.
+    /// identical (byteÃ¢â‚¬â€˜forÃ¢â‚¬â€˜byte) to the one that was stored.
     fn retrieve(&self, id: &EventId) -> Result<RawEvent, StoreError>;
 }
 
 use crate::integrity::{compute_hash, IntegrityMetadata};
 
-/// Simple in‑memory implementation used for the Phase 2 prototype.
+/// Simple inÃ¢â‚¬â€˜memory implementation used for the PhaseÃ¢â‚¬Â¯2 prototype.
 #[derive(Default)]
 pub struct InMemoryStore {
     map: HashMap<EventId, RawEvent>,
+    ordered_metadata: Vec<EventMetadata>,
     last_event_id: Option<EventId>,
 }
 
 impl InMemoryStore {
-    /// Create a new empty in‑memory store.
+    /// Create a new empty inÃ¢â‚¬â€˜memory store.
     pub fn new() -> Self {
         Self {
             map: HashMap::new(),
+            ordered_metadata: Vec::new(),
             last_event_id: None,
         }
     }
@@ -69,6 +74,15 @@ impl InMemoryStore {
 }
 
 impl EvidenceStore for InMemoryStore {
+    fn list_events(&self, offset: usize, limit: usize) -> Vec<EventMetadata> {
+        self.ordered_metadata
+            .iter()
+            .skip(offset)
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+
     fn store(&mut self, mut event: RawEvent) -> Result<(), StoreError> {
         // Reject insertion if the EventId already exists.
         if self.map.contains_key(&event.metadata.event_id) {
@@ -81,6 +95,7 @@ impl EvidenceStore for InMemoryStore {
         event.metadata.integrity = Some(integrity);
 
         self.last_event_id = Some(event.metadata.event_id.clone());
+        self.ordered_metadata.push(event.metadata.clone());
 
         // Insert the new event.
         self.map.insert(event.metadata.event_id.clone(), event);
@@ -131,6 +146,7 @@ use std::sync::Mutex;
 /// - The entire index is held in an in-memory HashMap, requiring $O(N)$ startup time
 ///   and memory proportional to the number of stored events.
 pub struct LocalEvidenceStore {
+    pub ordered_metadata: Vec<EventMetadata>,
     file: Mutex<File>,
     index: HashMap<EventId, u64>,
     last_event_id: Option<EventId>,
@@ -148,6 +164,7 @@ impl LocalEvidenceStore {
             .open(path)?;
 
         let mut index = HashMap::new();
+        let mut ordered_metadata = Vec::new();
         let mut last_event_id = None;
 
         let file_len = file.metadata()?.len();
@@ -179,6 +196,7 @@ impl LocalEvidenceStore {
 
             if let Some(event) = Self::deserialize_event(&payload) {
                 index.insert(event.metadata.event_id.clone(), offset);
+                ordered_metadata.push(event.metadata.clone());
                 last_event_id = Some(event.metadata.event_id);
             } else {
                 break;
@@ -191,6 +209,7 @@ impl LocalEvidenceStore {
         Ok(Self {
             file: Mutex::new(file),
             index,
+            ordered_metadata,
             last_event_id,
         })
     }
@@ -325,6 +344,15 @@ impl LocalEvidenceStore {
 }
 
 impl EvidenceStore for LocalEvidenceStore {
+    fn list_events(&self, offset: usize, limit: usize) -> Vec<EventMetadata> {
+        self.ordered_metadata
+            .iter()
+            .skip(offset)
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+
     fn store(&mut self, mut event: RawEvent) -> Result<(), StoreError> {
         if self.index.contains_key(&event.metadata.event_id) {
             return Err(StoreError::DuplicateId);
@@ -354,6 +382,7 @@ impl EvidenceStore for LocalEvidenceStore {
             .map_err(|e| StoreError::Internal(e.to_string()))?;
 
         self.index.insert(event.metadata.event_id.clone(), offset);
+        self.ordered_metadata.push(event.metadata.clone());
         self.last_event_id = Some(event.metadata.event_id.clone());
 
         Ok(())
