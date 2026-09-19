@@ -44,7 +44,7 @@ use crate::framing::FramedRecord;
 /// Version changes that affect the interpretation of a field must increment
 /// at least the minor component so that reprocessing pipelines can detect
 /// whether a stored interpretation is stale.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ParserVersion {
     pub major: u32,
     pub minor: u32,
@@ -102,7 +102,7 @@ pub enum LifecycleStage {
 ///
 /// Offsets are byte indices into the original parsed buffer. The range is
 /// half-open `[start, end)`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Span {
     pub start: usize,
     pub end: usize,

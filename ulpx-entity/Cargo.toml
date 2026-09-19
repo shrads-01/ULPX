@@ -1,0 +1,12 @@
+
+[package]
+name = "ulpx-entity"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ulpx-core = { path = "../ulpx-core" }
+ulpx-mapping = { path = "../ulpx-mapping" }
+ulpx-replay = { path = "../ulpx-replay" }
+serde = { version = "1.0", features = ["derive"] }
+

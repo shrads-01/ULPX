@@ -12,5 +12,7 @@ members = [
     "ulpx-postgres",
     "ulpx-parquet",
     "ulpx-object-store",
-    "ulpx-opensearch"
-, "ulpx-bench"]
+    "ulpx-entity",
+    "ulpx-opensearch",
+    "ulpx-bench",
+]

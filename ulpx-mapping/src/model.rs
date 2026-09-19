@@ -20,7 +20,9 @@ pub enum Severity {
 }
 
 /// Represents the level of confidence in a mapped field.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum Confidence {
     /// Heuristic guess, e.g. based on common field names like "host"
     Heuristic,
@@ -42,7 +44,7 @@ pub enum AbstentionReason {
 }
 
 /// Strict provenance for a single field mapping.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct FieldProvenance {
     /// The exact original field name in the IR.
     pub source_field: String,

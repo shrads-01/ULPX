@@ -28,7 +28,7 @@ impl SemanticMapper for JsonHeuristicMapper {
 
         let source_ip = ctx.extract(
             "source_ip",
-            &["src_ip", "source_ip", "client_ip"],
+            &["src_ip", "source_ip", "client_ip", "src", "client"],
             "json-heur-srcip-1",
             Confidence::Heuristic,
             as_string,

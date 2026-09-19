@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "ulpx-serve"
 version = "0.1.0"
 edition = "2021"
@@ -13,9 +13,12 @@ hex = "0.4"
 
 ulpx-core = { path = "../ulpx-core" }
 ulpx-ir = { path = "../ulpx-ir" }
+ulpx-ingest = { path = "../ulpx-ingest" }
 ulpx-infer = { path = "../ulpx-infer" }
-ulpx-mapping = { path = "../ulpx-mapping" }
 ulpx-replay = { path = "../ulpx-replay" }
+ulpx-postgres = { path = "../ulpx-postgres" }
+ulpx-mapping = { path = "../ulpx-mapping" }
+ulpx-entity = { path = "../ulpx-entity" }
 
 
 [dev-dependencies]

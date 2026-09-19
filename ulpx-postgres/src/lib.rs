@@ -1,5 +1,5 @@
 use serde::Serialize;
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use std::time::UNIX_EPOCH;
 use ulpx_replay::interpretation::{ComponentConfig, Interpretation, InterpretationId};
 
@@ -28,6 +28,14 @@ pub trait InterpretationRepository: Send + Sync {
         &self,
         interpretation: &Interpretation,
     ) -> Result<(), PostgresError>;
+
+    /// Queries interpretations that contain a specific entity.
+    #[allow(async_fn_in_trait)]
+    async fn query_entity_interpretations(
+        &self,
+        entity_type: &str,
+        entity_value: &str,
+    ) -> Result<Vec<String>, PostgresError>;
 
     /// Checks if a specific interpretation has been stored.
     #[allow(async_fn_in_trait)]
@@ -115,6 +123,31 @@ impl InterpretationRepository for PostgresInterpretationRepository {
                 inference_decision_json JSONB,
                 PRIMARY KEY (interpretation_id, frame_index)
             );
+            "#
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS entity_edges (
+                interpretation_id TEXT NOT NULL REFERENCES interpretations(interpretation_id) ON DELETE CASCADE,
+                frame_index INTEGER NOT NULL,
+                entity_type TEXT NOT NULL,
+                entity_value TEXT NOT NULL,
+                role TEXT NOT NULL,
+                confidence TEXT NOT NULL,
+                provenance_json JSONB NOT NULL,
+                PRIMARY KEY (interpretation_id, frame_index, entity_type, entity_value, role)
+            );
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_entity_edges_val ON entity_edges(entity_type, entity_value);
             "#,
         )
         .execute(&self.pool)
@@ -265,8 +298,60 @@ impl InterpretationRepository for PostgresInterpretationRepository {
             .await?;
         }
 
+        let entity_observations = ulpx_entity::resolution::resolve_interpretation(interpretation);
+        for obs in entity_observations {
+            let frame_index_db = i32::try_from(obs.frame_index)
+                .map_err(|_| PostgresError::FrameIndexOverflow(obs.frame_index))?;
+            let entity_type_str = format!("{:?}", obs.node.entity_type);
+            let role_str = format!("{:?}", obs.role);
+            let confidence_str = format!("{:?}", obs.confidence);
+            let provenance_json = serde_json::to_value(&obs.provenance)?;
+
+            sqlx::query(
+                r#"
+                INSERT INTO entity_edges (
+                    interpretation_id, frame_index, entity_type, entity_value, role, confidence, provenance_json
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                ON CONFLICT DO NOTHING
+                "#
+            )
+            .bind(&interp_id_str)
+            .bind(frame_index_db)
+            .bind(entity_type_str)
+            .bind(obs.node.value)
+            .bind(role_str)
+            .bind(confidence_str)
+            .bind(&provenance_json)
+            .execute(&mut *tx)
+            .await?;
+        }
+
         tx.commit().await?;
         Ok(())
+    }
+
+    async fn query_entity_interpretations(
+        &self,
+        entity_type: &str,
+        entity_value: &str,
+    ) -> Result<Vec<String>, PostgresError> {
+        let rows = sqlx::query(
+            r#"
+            SELECT DISTINCT interpretation_id
+            FROM entity_edges
+            WHERE entity_type = $1 AND entity_value = $2
+            ORDER BY interpretation_id
+            "#,
+        )
+        .bind(entity_type)
+        .bind(entity_value)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| r.get("interpretation_id"))
+            .collect())
     }
 
     async fn has_interpretation(&self, id: &InterpretationId) -> Result<bool, PostgresError> {

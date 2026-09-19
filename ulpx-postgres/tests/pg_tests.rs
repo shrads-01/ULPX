@@ -250,3 +250,164 @@ async fn test_schema_and_idempotent_persistence() {
             .get(0);
     assert_eq!(count, 0, "interpretation_frames must be rolled back");
 }
+#[tokio::test]
+async fn test_entity_graph_persistence() {
+    if !is_docker_running() {
+        return;
+    }
+
+    let docker = clients::Cli::default();
+    let pg_node = docker.run(Postgres::default());
+    let connection_string = format!(
+        "postgres://postgres:postgres@127.0.0.1:{}/postgres",
+        pg_node.get_host_port_ipv4(5432)
+    );
+    let pool = PgPool::connect(&connection_string).await.expect("connect");
+    let repo = PostgresInterpretationRepository::new(pool.clone());
+    repo.initialize_schema().await.expect("schema");
+
+    let event_id = EventId::new("evt-ent-1").unwrap();
+    let config = PipelineConfiguration {
+        framer: ComponentConfig {
+            id: "f".into(),
+            version: "1".into(),
+        },
+        mapper: ComponentConfig {
+            id: "m".into(),
+            version: "1".into(),
+        },
+        parser_registry: vec![],
+        inference_detectors: vec![],
+    };
+    let interp_id = InterpretationId::generate(&event_id, &config).unwrap();
+
+    use ulpx_core::parser::ParserVersion;
+    use ulpx_mapping::model::{CanonicalEvent, CanonicalField, Confidence, FieldProvenance};
+
+    let interp = Interpretation {
+        id: interp_id.clone(),
+        source_event_id: event_id.clone(),
+        pipeline_config: config.clone(),
+        frames: vec![FrameInterpretation {
+            frame_index: 0,
+            frame_bytes: vec![],
+            execution: FrameExecution {
+                parser_used: None,
+                inference: InferenceExecution::NotInvoked,
+            },
+            parser_outcome: ParserOutcome::Abstained,
+            inference_decision: None,
+            ir_event: None,
+            canonical_event: Some(CanonicalEvent {
+                event_id: event_id.clone(),
+                parser_id: "p".into(),
+                parser_version: ParserVersion {
+                    major: 1,
+                    minor: 0,
+                    patch: 0,
+                },
+                raw_bytes: vec![],
+                timestamp: None,
+                source_ip: Some(CanonicalField {
+                    value: "10.1.1.5".into(),
+                    provenance: FieldProvenance {
+                        source_field: "src".to_string(),
+                        span: None,
+                        transformations: vec![],
+                        rule_id: "r1".into(),
+                        confidence: Confidence::Certain,
+                        parser_id: "p".into(),
+                        parser_version: ParserVersion {
+                            major: 1,
+                            minor: 0,
+                            patch: 0,
+                        },
+                    },
+                }),
+                source_hostname: None,
+                dest_ip: None,
+                dest_hostname: None,
+                severity: None,
+                message: None,
+                action: None,
+                unmapped: std::collections::BTreeMap::new(),
+                abstentions: vec![],
+            }),
+        }],
+        trailing_frame_error: None,
+        created_at: SystemTime::now(),
+        integrity_verified: true,
+        integrity_error: None,
+    };
+
+    repo.save_interpretation(&interp).await.unwrap();
+
+    let ids = repo
+        .query_entity_interpretations("IPv4", "10.1.1.5")
+        .await
+        .unwrap();
+    assert_eq!(ids, vec![interp_id.0.to_string()]);
+
+    let event_id2 = EventId::new("evt-ent-2").unwrap();
+    let interp_id2 = InterpretationId::generate(&event_id2, &config).unwrap();
+    let mut interp2 = interp.clone();
+    interp2.id = interp_id2.clone();
+    interp2.source_event_id = event_id2.clone();
+    repo.save_interpretation(&interp2).await.unwrap();
+
+    let ids2 = repo
+        .query_entity_interpretations("IPv4", "10.1.1.5")
+        .await
+        .unwrap();
+    assert_eq!(ids2.len(), 2);
+
+    repo.save_interpretation(&interp).await.unwrap();
+    let count: i64 = sqlx::query("SELECT COUNT(*) FROM entity_edges WHERE interpretation_id = $1")
+        .bind(interp_id.0.to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(count, 1, "Idempotent save should not duplicate edges");
+
+    let row = sqlx::query(
+        "SELECT confidence, provenance_json FROM entity_edges WHERE interpretation_id = $1",
+    )
+    .bind(interp_id.0.to_string())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let conf: String = row.get(0);
+    let prov: serde_json::Value = row.get(1);
+    assert_eq!(conf, "Certain");
+    assert_eq!(prov.get("rule_id").unwrap().as_str().unwrap(), "r1");
+
+    let config3 = PipelineConfiguration {
+        framer: ComponentConfig {
+            id: "f2".into(),
+            version: "1".into(),
+        },
+        mapper: ComponentConfig {
+            id: "m2".into(),
+            version: "1".into(),
+        },
+        parser_registry: vec![],
+        inference_detectors: vec![],
+    };
+    let interp_id3 = InterpretationId::generate(&event_id, &config3).unwrap();
+    let mut interp3 = interp.clone();
+    interp3.id = interp_id3.clone();
+    interp3.pipeline_config = config3.clone();
+    interp3.frames[0].canonical_event = None;
+    repo.save_interpretation(&interp3).await.unwrap();
+
+    let ids3 = repo
+        .query_entity_interpretations("IPv4", "10.1.1.5")
+        .await
+        .unwrap();
+    assert!(
+        ids3.contains(&interp_id.0.to_string()),
+        "Historical entity edge must survive later reprocessing"
+    );
+    assert!(!ids3.contains(&interp_id3.0.to_string()));
+}

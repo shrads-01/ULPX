@@ -51,6 +51,7 @@ pub fn create_router(store: Arc<dyn EvidenceStore + Send + Sync>) -> Router {
             }),
         )
         .route("/api/v1/events", get(list_events))
+        .route("/api/v1/entity/:type/:value", get(get_entity))
         .route("/api/v1/evidence/:event_id", get(get_evidence))
         .route(
             "/api/v1/interpretation/:event_id/detailed",
@@ -154,6 +155,102 @@ async fn get_interpretation_detailed(
     })?;
 
     Ok(Json(ApiDetailedInterpretation::from(&interpretation)))
+}
+
+async fn get_entity(
+    State(state): State<Arc<AppState>>,
+    Path((entity_type, entity_value)): Path<(String, String)>,
+) -> Result<Json<Vec<String>>, (StatusCode, String)> {
+    // ARCHITECTURE NOTE:
+    // This API boundary operates exclusively in local/ephemeral offline mode, using `LocalEvidenceStore`.
+    // It dynamically reconstructs entity associations on-the-fly using the canonical Phase 15 declarative
+    // pipeline configuration. It does NOT depend on PostgreSQL, which is designed as an optional
+    // export/durable backend tested independently in `ulpx-postgres`.
+
+    let req_type = entity_type.to_lowercase();
+    let norm_value = if req_type == "ip" {
+        ulpx_entity::resolution::normalize_ipv4(&entity_value)
+            .or_else(|| ulpx_entity::resolution::normalize_ipv6(&entity_value))
+    } else if req_type == "hostname" {
+        ulpx_entity::resolution::normalize_hostname(&entity_value)
+    } else {
+        None
+    };
+
+    let norm_value = match norm_value {
+        Some(v) => v,
+        None => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Invalid or unsupported entity type/value".to_string(),
+            ))
+        }
+    };
+
+    let framer = NewlineFramer;
+    let mut parser_registry = ParserRegistry::new();
+    let _ = parser_registry.register(
+        Box::new(JsonParser::new()),
+        ulpx_core::parser::LifecycleStage::Deployed,
+    );
+    let _ = parser_registry.register(
+        Box::new(SyslogParser::new()),
+        ulpx_core::parser::LifecycleStage::Deployed,
+    );
+    let _ = parser_registry.register(
+        Box::new(CefParser::new()),
+        ulpx_core::parser::LifecycleStage::Deployed,
+    );
+    let inference_engine = InferenceEngine::default();
+    let ir_converter = CompositeConverter::default_registry();
+    let mapping_engine = MappingEngine::default_registry();
+
+    let pipeline = ReplayPipeline::new(
+        &*(state.store) as &(dyn EvidenceStore + 'static),
+        &framer,
+        ComponentConfig {
+            id: "NewlineFramer".into(),
+            version: "1.0.0".into(),
+        },
+        &parser_registry,
+        &inference_engine,
+        &ir_converter,
+        &mapping_engine,
+        ComponentConfig {
+            id: "CompositeMapper".into(),
+            version: "1.0.0".into(),
+        },
+    );
+
+    let events = state.store.list_events(0, 10000);
+
+    let mut matching_interpretations = Vec::new();
+    for event in events {
+        if let Ok(interpretation) = pipeline.replay(&event.event_id) {
+            let obs_list = ulpx_entity::resolution::resolve_interpretation(&interpretation);
+            for obs in obs_list {
+                let obs_type_str = match obs.node.entity_type {
+                    ulpx_entity::model::EntityType::IPv4 => "ip",
+                    ulpx_entity::model::EntityType::IPv6 => "ip",
+                    ulpx_entity::model::EntityType::Hostname => "hostname",
+                };
+                if obs_type_str == req_type && obs.node.value == norm_value {
+                    let mut hash_hex = String::with_capacity(64);
+                    for byte in &interpretation.id.0 .0 {
+                        use std::fmt::Write;
+                        write!(&mut hash_hex, "{:02x}", byte).unwrap();
+                    }
+                    matching_interpretations.push(hash_hex);
+                    break;
+                }
+            }
+        }
+    }
+
+    matching_interpretations.sort();
+    matching_interpretations.dedup();
+
+    Ok(Json(matching_interpretations))
 }
 
 async fn ephemeral_replay(

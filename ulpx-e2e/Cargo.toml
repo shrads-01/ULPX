@@ -12,3 +12,8 @@ reqwest = { version = "0.12", features = ["json"] }
 serde_json = "1.0"
 ulpx-core = { path = "../ulpx-core" }
 base64 = "0.23.1"
+axum = "0.8.9"
+tower = "0.5.3"
+http-body-util = "0.1.5"
+tempfile = "3.27.0"
+ulpx-serve = { path = "../ulpx-serve" }
