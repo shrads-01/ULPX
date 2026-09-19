@@ -6,3 +6,5 @@ edition = "2021"
 [dependencies]
 ulpx-core = { path = "../ulpx-core" }
 ulpx-infer = { path = "../ulpx-infer" }
+ulpx-mapping = { path = "../ulpx-mapping" }
+ulpx-ir = { path = "../ulpx-ir" }

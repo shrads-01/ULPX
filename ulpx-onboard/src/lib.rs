@@ -1,4 +1,4 @@
-//! Phase 9: Parser Onboarding and Generation.
+//! Phase 8: ParserLab and Parser Onboarding.
 //!
 //! This crate provides a deterministic, offline mechanism for defining and
 //! generating real parsers from a declarative specification.
@@ -23,5 +23,7 @@
 
 pub mod generator;
 pub mod inference;
+pub mod lab;
+pub mod lifecycle;
 pub mod parser;
 pub mod spec;
