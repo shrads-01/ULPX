@@ -1,4 +1,4 @@
-﻿use axum::{
+use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
@@ -371,6 +371,35 @@ async fn test_ui_routes_serve_static_files() {
         .unwrap();
     assert_eq!(res_css.status(), StatusCode::OK);
     assert_eq!(res_css.headers().get("content-type").unwrap(), "text/css");
+
+    let _ = std::fs::remove_file(path);
+}
+
+#[tokio::test]
+async fn test_empty_store_returns_zero_events_cleanly() {
+    let path = "test_serve_empty.ulpx";
+    let _ = std::fs::remove_file(path);
+
+    // Store is created but no events are added
+    let store = LocalEvidenceStore::new(path).unwrap();
+    let app = create_router(Arc::new(store));
+
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/events")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let body_bytes = res.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    assert!(json.get("events").unwrap().as_array().unwrap().is_empty());
 
     let _ = std::fs::remove_file(path);
 }
