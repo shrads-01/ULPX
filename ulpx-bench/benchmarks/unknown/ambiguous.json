@@ -1,0 +1,13 @@
+﻿{
+  "name": "Ambiguous Text",
+  "category": "Unknown",
+  "payload": "Just some random plain text log that no one understands\n",
+  "expected_parser": null,
+  "expect_abstain": true,
+  "expected_inference": null,
+  "expected_extracted": {},
+  "expected_mapped": {},
+  "expected_frame_count": 1,
+  "expected_frame_hex": ["4a75737420736f6d652072616e646f6d20706c61696e2074657874206c6f672074686174206e6f206f6e6520756e6465727374616e6473"],
+  "expected_oversized": false
+}

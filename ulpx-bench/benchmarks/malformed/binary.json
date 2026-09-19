@@ -1,0 +1,13 @@
+﻿{
+  "name": "Binary Non-UTF8",
+  "category": "Malformed",
+  "payload": "\u0000\u0001\u0002\u0003\n",
+  "expected_parser": null,
+  "expect_abstain": true,
+  "expected_inference": null,
+  "expected_extracted": {},
+  "expected_mapped": {},
+  "expected_frame_count": 1,
+  "expected_frame_hex": ["00010203"],
+  "expected_oversized": false
+}

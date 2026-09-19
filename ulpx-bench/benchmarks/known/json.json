@@ -1,0 +1,13 @@
+﻿{
+  "name": "JSON Standard",
+  "category": "Known",
+  "payload": "{\"src_ip\":\"10.0.0.1\",\"action\":\"ALLOW\"}\n",
+  "expected_parser": "json-flat",
+  "expect_abstain": false,
+  "expected_inference": null,
+  "expected_extracted": {"src_ip": "10.0.0.1", "action": "ALLOW"},
+  "expected_mapped": {"source_ip": "10.0.0.1"},
+  "expected_frame_count": 1,
+  "expected_frame_hex": ["7b227372635f6970223a2231302e302e302e31222c22616374696f6e223a22414c4c4f57227d"],
+  "expected_oversized": false
+}

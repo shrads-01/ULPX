@@ -1,0 +1,13 @@
+﻿{
+  "name": "Unseen Vendor KV",
+  "category": "UnseenVendor",
+  "payload": "vendor=ACME product=Firewall action=DENY\n",
+  "expected_parser": "generic-kv-space-eq",
+  "expect_abstain": false,
+  "expected_inference": "generic-kv-space-eq",
+  "expected_extracted": {"vendor": "ACME", "product": "Firewall", "action": "DENY"},
+  "expected_mapped": {},
+  "expected_frame_count": 1,
+  "expected_frame_hex": ["76656e646f723d41434d452070726f647563743d4669726577616c6c20616374696f6e3d44454e59"],
+  "expected_oversized": false
+}

@@ -1,0 +1,20 @@
+﻿{
+  "name": "Syslog Standard",
+  "category": "Known",
+  "payload": "<34>Oct 11 22:14:15 mymachine su: 'su root' failed for lonvick on /dev/pts/8\n",
+  "expected_parser": "syslog-rfc3164",
+  "expect_abstain": false,
+  "expected_inference": null,
+  "expected_extracted": {
+    "syslog.priority": "34", "syslog.facility": "4", "syslog.severity": "2",
+    "syslog.timestamp": "Oct 11 22:14:15", "syslog.hostname": "mymachine", "syslog.tag": "su",
+    "syslog.message": "'su root' failed for lonvick on /dev/pts/8"
+  },
+  "expected_mapped": {
+    "source_hostname": "mymachine", "message": "'su root' failed for lonvick on /dev/pts/8",
+    "severity": "Critical", "timestamp": "Oct 11 22:14:15"
+  },
+  "expected_frame_count": 1,
+  "expected_frame_hex": ["3c33343e4f63742031312032323a31343a3135206d796d616368696e652073753a2027737520726f6f7427206661696c656420666f72206c6f6e7669636b206f6e202f6465762f7074732f38"],
+  "expected_oversized": false
+}

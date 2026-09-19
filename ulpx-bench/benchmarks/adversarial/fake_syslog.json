@@ -1,0 +1,13 @@
+﻿{
+  "name": "Fake Syslog within JSON",
+  "category": "Adversarial",
+  "payload": "{\"msg\":\"<34>Oct 11 22:14:15 fake syslog\",\"src_ip\":\"10.0.0.1\"}\n",
+  "expected_parser": "json-flat",
+  "expect_abstain": false,
+  "expected_inference": null,
+  "expected_extracted": {"src_ip": "10.0.0.1", "msg": "<34>Oct 11 22:14:15 fake syslog"},
+  "expected_mapped": {"source_ip": "10.0.0.1", "message": "<34>Oct 11 22:14:15 fake syslog"},
+  "expected_frame_count": 1,
+  "expected_frame_hex": ["7b226d7367223a223c33343e4f63742031312032323a31343a31352066616b65207379736c6f67222c227372635f6970223a2231302e302e302e31227d"],
+  "expected_oversized": false
+}

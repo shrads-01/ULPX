@@ -1,0 +1,13 @@
+﻿{
+  "name": "Invalid JSON",
+  "category": "Malformed",
+  "payload": "{\"src_ip\":\"10.0.0.1\", \"action\": ALLOW}\n",
+  "expected_parser": null,
+  "expect_abstain": false,
+  "expected_inference": "json-flat",
+  "expected_extracted": {},
+  "expected_mapped": {},
+  "expected_frame_count": 1,
+  "expected_frame_hex": ["7b227372635f6970223a2231302e302e302e31222c2022616374696f6e223a20414c4c4f577d"],
+  "expected_oversized": false
+}

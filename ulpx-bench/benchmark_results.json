@@ -1,0 +1,18 @@
+{
+  "total_cases": 13,
+  "framing_correct": 13,
+  "format_detection_correct": 11,
+  "field_extraction_correct": 9,
+  "semantic_mapping_correct": 4,
+  "correct_abstentions": 2,
+  "false_attributions": 0,
+  "onboarding_successes": 2,
+  "high_confidence_correct": 10,
+  "high_confidence_total": 10,
+  "p50_latency_us": 9,
+  "p95_latency_us": 22,
+  "p99_latency_us": 32,
+  "throughput_bytes_per_us": 8.760037543018042,
+  "peak_memory_mb": 5.75390625,
+  "onboarding_latency_us": 63
+}

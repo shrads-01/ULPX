@@ -1,0 +1,17 @@
+﻿{
+  "name": "Resembling Multiple Formats",
+  "category": "Adversarial",
+  "payload": "CEF:0|Vendor|Product|1.0|200|Test|3|src=1.2.3.4 {\"nested\":\"json\"}\n",
+  "expected_parser": "cef",
+  "expect_abstain": false,
+  "expected_inference": null,
+  "expected_extracted": {
+    "cef.version": "0", "cef.device_vendor": "Vendor", "cef.device_product": "Product",
+    "cef.device_version": "1.0", "cef.signature_id": "200", "cef.name": "Test", "cef.severity": "3",
+    "src": "1.2.3.4 {\"nested\":\"json\"}"
+  },
+  "expected_mapped": {"source_ip": "1.2.3.4 {\"nested\":\"json\"}", "message": "Test", "severity": "Info"},
+  "expected_frame_count": 1,
+  "expected_frame_hex": ["4345463a307c56656e646f727c50726f647563747c312e307c3230307c546573747c337c7372633d312e322e332e34207b226e6573746564223a226a736f6e227d"],
+  "expected_oversized": false
+}

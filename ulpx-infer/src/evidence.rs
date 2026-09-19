@@ -1,24 +1,24 @@
-﻿//! Structural detectors that produce [`FormatCandidate`] evidence for a
+//! Structural detectors that produce [`FormatCandidate`] evidence for a
 //! framed record.
 //!
 //! Each detector is a free function that inspects the raw bytes of a record
-//! and returns an `Option<FormatCandidate>` â€” `None` means the detector found
+//! and returns an `Option<FormatCandidate>` — `None` means the detector found
 //! no evidence worth reporting at all, not even contradicting evidence.
 //!
 //! Detectors must be:
-//! * **deterministic** â€” same input, same output
-//! * **non-modifying** â€” they only read bytes
-//! * **independent** â€” they do not call other detectors
-//! * **bounded** â€” they must not loop unboundedly over input
+//! * **deterministic** — same input, same output
+//! * **non-modifying** — they only read bytes
+//! * **independent** — they do not call other detectors
+//! * **bounded** — they must not loop unboundedly over input
 //!
 //! A detector may add both supporting and contradicting [`Evidence`] items to
 //! a single candidate.  The engine aggregates all detectors before deciding.
 
 use crate::model::{Evidence, FormatCandidate, InferenceConfidence};
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 // JSON detector
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 
 /// Detect JSON objects by structural markers.
 ///
@@ -35,7 +35,7 @@ pub fn detect_json(bytes: &[u8]) -> Option<FormatCandidate> {
 
     let mut evidence = Vec::new();
 
-    // UTF-8 check â€” JSON is always UTF-8.
+    // UTF-8 check — JSON is always UTF-8.
     let text = match std::str::from_utf8(trimmed) {
         Ok(t) => t,
         Err(_) => {
@@ -112,13 +112,13 @@ pub fn detect_json(bytes: &[u8]) -> Option<FormatCandidate> {
     })
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 // CEF detector
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 
 /// Detect CEF (Common Event Format) by its mandatory header prefix.
 ///
-/// CEF:0|â€¦ has a precisely defined header structure.  We check:
+/// CEF:0|… has a precisely defined header structure.  We check:
 /// * Starts with `CEF:` (case-sensitive per spec)
 /// * Followed by a single decimal digit and `|`
 /// * Contains at least 6 pipe separators (the 7 mandatory header fields)
@@ -161,7 +161,7 @@ pub fn detect_cef(bytes: &[u8]) -> Option<FormatCandidate> {
     if pipe_count >= 6 {
         evidence.push(Evidence::support(
             "cef-pipe-count",
-            format!("found {pipe_count} pipe separators (â‰¥6 required for valid CEF header)"),
+            format!("found {pipe_count} pipe separators (>=6 required for valid CEF header)"),
         ));
     } else {
         evidence.push(Evidence::contradict(
@@ -186,9 +186,9 @@ pub fn detect_cef(bytes: &[u8]) -> Option<FormatCandidate> {
     })
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 // Syslog detector
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 
 /// Detect RFC 3164 syslog by its priority marker and timestamp shape.
 ///
@@ -284,12 +284,106 @@ pub fn detect_syslog(bytes: &[u8]) -> Option<FormatCandidate> {
     })
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
+// Generic Key-Value detector
+// ─────────────────────────────────────────────
+
+/// Detect generic space-delimited Key=Value structures.
+///
+/// This is a production inference capability that enables the onboarding
+/// pipeline to generate parsers for previously unseen KV-format vendors.
+///
+/// The detector applies strict guards to avoid false attribution:
+/// * Rejects input starting with `{` (JSON), `<` (Syslog/XML), or `CEF:` (CEF)
+/// * Requires at least 2 well-formed `key=value` pairs (no bare `=` or trailing `=`)
+/// * Requires that at least half the space-separated tokens contain `=`
+/// * Emits `Medium` confidence — never `High` — because heuristic KV detection
+///   is inherently less certain than matching a strict format prefix.
+pub fn detect_generic_kv(bytes: &[u8]) -> Option<FormatCandidate> {
+    let s = String::from_utf8_lossy(bytes);
+    let trimmed = s.trim();
+    if trimmed.starts_with('{')
+        || trimmed.starts_with('<')
+        || trimmed.starts_with("CEF:")
+        || trimmed.starts_with('[')
+    {
+        return None;
+    }
+    let mut eq_count = 0;
+    let mut space_count = 0;
+    for chunk in trimmed.split(' ') {
+        if chunk.is_empty() {
+            continue;
+        }
+        space_count += 1;
+        if chunk.contains('=') && !chunk.starts_with('=') && !chunk.ends_with('=') {
+            eq_count += 1;
+        }
+    }
+    if eq_count >= 2 && space_count >= 2 && eq_count >= (space_count / 2) {
+        Some(FormatCandidate {
+            parser_id: "generic-kv-space-eq".to_string(),
+            format_name: "Key-Value".to_string(),
+            confidence: InferenceConfidence::Medium,
+            evidence: vec![Evidence::support(
+                "kv-heuristic",
+                format!("Found {eq_count} well-formed key=value pairs"),
+            )],
+        })
+    } else {
+        None
+    }
+}
+
+// ─────────────────────────────────────────────
+// Generic CSV detector
+// ─────────────────────────────────────────────
+
+/// Detect generic 3-column comma-separated structures.
+///
+/// This is a production inference capability that enables the onboarding
+/// pipeline to generate parsers for previously unseen CSV-format vendors.
+///
+/// The detector applies strict guards to avoid false attribution:
+/// * Rejects input starting with `{`, `<`, `[`, or containing `=`
+/// * Requires exactly 2 commas (i.e. exactly 3 columns)
+/// * Requires all 3 columns to be non-empty
+/// * Emits `Medium` confidence because heuristic CSV detection
+///   is inherently less certain than matching a strict format prefix.
+pub fn detect_generic_csv(bytes: &[u8]) -> Option<FormatCandidate> {
+    let s = String::from_utf8_lossy(bytes);
+    let trimmed = s.trim();
+    if trimmed.starts_with('{')
+        || trimmed.starts_with('<')
+        || trimmed.starts_with('[')
+        || trimmed.contains('=')
+    {
+        return None;
+    }
+    let commas = trimmed.matches(',').count();
+    if commas == 2 {
+        let cols: Vec<&str> = trimmed.split(',').collect();
+        if cols.len() == 3 && cols.iter().all(|c| !c.is_empty()) {
+            return Some(FormatCandidate {
+                parser_id: "generic-csv-3col".to_string(),
+                format_name: "CSV".to_string(),
+                confidence: InferenceConfidence::Medium,
+                evidence: vec![Evidence::support(
+                    "csv-heuristic",
+                    "Exactly 3 non-empty columns",
+                )],
+            });
+        }
+    }
+    None
+}
+
+// ─────────────────────────────────────────────
 // Helpers
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 
 /// Returns true if the text starts with a 3-letter month abbreviation followed
-/// by a space (e.g. "Jan ", "Feb ", â€¦), consistent with syslog timestamps.
+/// by a space (e.g. "Jan ", "Feb ", ...), consistent with syslog timestamps.
 fn looks_like_syslog_timestamp_start(text: &str) -> bool {
     const MONTHS: [&str; 12] = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -302,13 +396,15 @@ fn looks_like_syslog_timestamp_start(text: &str) -> bool {
     MONTHS.contains(&prefix) && after == ' '
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 // Tests
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── JSON tests ──
 
     #[test]
     fn json_detector_recognizes_object() {
@@ -320,7 +416,6 @@ mod tests {
 
     #[test]
     fn json_detector_rejects_non_object() {
-        // A plain string is not a JSON object
         assert!(detect_json(b"hello world").is_none());
     }
 
@@ -330,6 +425,8 @@ mod tests {
         assert_eq!(c.confidence, InferenceConfidence::Low);
         assert!(c.evidence.iter().any(|e| !e.supports));
     }
+
+    // ── CEF tests ──
 
     #[test]
     fn cef_detector_recognizes_full_header() {
@@ -349,6 +446,8 @@ mod tests {
         assert!(c.confidence < InferenceConfidence::High);
     }
 
+    // ── Syslog tests ──
+
     #[test]
     fn syslog_detector_recognizes_priority() {
         let c = detect_syslog(b"<34>Jan  5 12:34:56 myhost myapp: hello").unwrap();
@@ -366,5 +465,69 @@ mod tests {
         let c = detect_syslog(b"Jan  5 12:34:56 myhost myapp: hello").unwrap();
         assert_eq!(c.parser_id, "syslog-rfc3164");
         assert_eq!(c.confidence, InferenceConfidence::Medium);
+    }
+
+    // ── KV detector tests ──
+
+    #[test]
+    fn kv_detector_recognizes_pairs() {
+        let c = detect_generic_kv(b"vendor=Acme product=Widget version=1").unwrap();
+        assert_eq!(c.parser_id, "generic-kv-space-eq");
+        assert_eq!(c.confidence, InferenceConfidence::Medium);
+    }
+
+    #[test]
+    fn kv_detector_rejects_json() {
+        assert!(detect_generic_kv(b"{\"vendor\":\"Acme\", \"product\":\"Widget\"}").is_none());
+    }
+
+    #[test]
+    fn kv_detector_rejects_cef() {
+        assert!(detect_generic_kv(b"CEF:0|Acme|Widget|1.0|100|Event|5|vendor=Acme").is_none());
+    }
+
+    #[test]
+    fn kv_detector_rejects_syslog() {
+        assert!(detect_generic_kv(b"<34>Oct 11 22:14:15 host vendor=Acme").is_none());
+    }
+
+    #[test]
+    fn kv_detector_rejects_single_pair() {
+        // Only one key=value pair is not enough
+        assert!(detect_generic_kv(b"vendor=Acme").is_none());
+    }
+
+    #[test]
+    fn kv_detector_rejects_bare_equals() {
+        assert!(detect_generic_kv(b"= something =else").is_none());
+    }
+
+    // ── CSV detector tests ──
+
+    #[test]
+    fn csv_detector_recognizes_three_columns() {
+        let c = detect_generic_csv(b"val1,val2,val3").unwrap();
+        assert_eq!(c.parser_id, "generic-csv-3col");
+        assert_eq!(c.confidence, InferenceConfidence::Medium);
+    }
+
+    #[test]
+    fn csv_detector_rejects_kv_with_commas() {
+        assert!(detect_generic_csv(b"k1=v1,k2=v2,k3=v3").is_none());
+    }
+
+    #[test]
+    fn csv_detector_rejects_empty_columns() {
+        assert!(detect_generic_csv(b"val1,,val3").is_none());
+    }
+
+    #[test]
+    fn csv_detector_rejects_json_with_commas() {
+        assert!(detect_generic_csv(b"{\"a\":1,\"b\":2,\"c\":3}").is_none());
+    }
+
+    #[test]
+    fn csv_detector_rejects_four_columns() {
+        assert!(detect_generic_csv(b"a,b,c,d").is_none());
     }
 }

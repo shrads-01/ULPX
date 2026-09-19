@@ -405,12 +405,17 @@ async fn test_airgap_end_to_end_real_docker() {
         known_replay_resp.status.success(),
         "Known Replay request failed"
     );
-    let known_replay_json: serde_json::Value = match serde_json::from_slice(&known_replay_resp.stdout) {
-        Ok(v) => v,
-        Err(e) => {
-            panic!("Failed to parse JSON from known replay. Error: {}. Stdout: {}", e, String::from_utf8_lossy(&known_replay_resp.stdout));
-        }
-    };
+    let known_replay_json: serde_json::Value =
+        match serde_json::from_slice(&known_replay_resp.stdout) {
+            Ok(v) => v,
+            Err(e) => {
+                panic!(
+                    "Failed to parse JSON from known replay. Error: {}. Stdout: {}",
+                    e,
+                    String::from_utf8_lossy(&known_replay_resp.stdout)
+                );
+            }
+        };
 
     let known_frames = known_replay_json.get("frames").unwrap().as_array().unwrap();
     assert!(
@@ -479,7 +484,11 @@ async fn test_airgap_end_to_end_real_docker() {
     let replay_json: serde_json::Value = match serde_json::from_slice(&replay_resp.stdout) {
         Ok(v) => v,
         Err(e) => {
-            panic!("Failed to parse JSON from inference replay. Error: {}. Stdout: {}", e, String::from_utf8_lossy(&replay_resp.stdout));
+            panic!(
+                "Failed to parse JSON from inference replay. Error: {}. Stdout: {}",
+                e,
+                String::from_utf8_lossy(&replay_resp.stdout)
+            );
         }
     };
 

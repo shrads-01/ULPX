@@ -13,4 +13,4 @@ members = [
     "ulpx-parquet",
     "ulpx-object-store",
     "ulpx-opensearch"
-]
+, "ulpx-bench"]
