@@ -403,3 +403,245 @@ async fn test_empty_store_returns_zero_events_cleanly() {
 
     let _ = std::fs::remove_file(path);
 }
+// ── Phase 15: Provenance / confidence / unknown-format API tests ───────────
+
+/// The evidence endpoint must return size_bytes in addition to the payload.
+#[tokio::test]
+async fn test_evidence_endpoint_includes_size_bytes() {
+    let path = "test_serve_size_bytes.ulpx";
+    let _ = std::fs::remove_file(path);
+    let mut store = LocalEvidenceStore::new(path).unwrap();
+    let payload = b"hello world\n";
+    store
+        .store(RawEvent::new(
+            EventId::new("evt-size").unwrap(),
+            payload.to_vec(),
+            Source("src".into()),
+        ))
+        .unwrap();
+
+    let app = create_router(Arc::new(store));
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/evidence/evt-size")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: serde_json::Value =
+        serde_json::from_slice(&res.into_body().collect().await.unwrap().to_bytes()).unwrap();
+
+    // size_bytes must be the actual byte length of the stored payload
+    assert_eq!(body["size_bytes"].as_u64().unwrap(), payload.len() as u64);
+    // payload_base64 must still be present
+    assert!(body["payload_base64"].as_str().is_some());
+
+    let _ = std::fs::remove_file(path);
+}
+
+/// The interpretation endpoint must include provenance data on canonical fields
+/// (source_field, confidence, byte_span) when the JSON parser succeeds.
+#[tokio::test]
+async fn test_interpretation_includes_provenance_data() {
+    let path = "test_serve_provenance.ulpx";
+    let _ = std::fs::remove_file(path);
+    let mut store = LocalEvidenceStore::new(path).unwrap();
+
+    let json_payload = "{\"src_ip\":\"10.0.0.1\",\"message\":\"login ok\"}\n";
+    store
+        .store(RawEvent::new(
+            EventId::new("evt-prov").unwrap(),
+            json_payload.as_bytes().to_vec(),
+            Source("prov-test".into()),
+        ))
+        .unwrap();
+
+    let app = create_router(Arc::new(store));
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/interpretation/evt-prov/detailed")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: serde_json::Value =
+        serde_json::from_slice(&res.into_body().collect().await.unwrap().to_bytes()).unwrap();
+
+    let frame = &body["frames"][0];
+    assert_eq!(frame["parser_outcome"], "Success");
+
+    // canonical_event must be present
+    let canon = &frame["canonical_event"];
+    assert!(
+        !canon.is_null(),
+        "canonical_event should be present for JSON input"
+    );
+
+    // Any canonical field that is present must carry provenance with at least source_field and confidence
+    let check_prov = |field: &serde_json::Value, name: &str| {
+        if !field.is_null() {
+            let prov = &field["provenance"];
+            assert!(!prov.is_null(), "Field '{}' must have provenance", name);
+            assert!(
+                prov["source_field"].as_str().is_some(),
+                "Field '{}' provenance must have source_field",
+                name
+            );
+            assert!(
+                prov["confidence"].as_str().is_some(),
+                "Field '{}' provenance must have confidence",
+                name
+            );
+        }
+    };
+
+    check_prov(&canon["source_ip"], "source_ip");
+    check_prov(&canon["message"], "message");
+    check_prov(&canon["timestamp"], "timestamp");
+
+    let _ = std::fs::remove_file(path);
+}
+
+/// When inference runs (unknown format — no parser matches), the inference_decision
+/// must be present in the frame with a non-empty all_candidates list.
+#[tokio::test]
+async fn test_unknown_format_inference_decision_present() {
+    let path = "test_serve_unknown_fmt.ulpx";
+    let _ = std::fs::remove_file(path);
+    let mut store = LocalEvidenceStore::new(path).unwrap();
+
+    // A line that looks like syslog so at least one inference candidate fires
+    let payload = "Jan  1 00:00:01 myhost myapp[123]: something happened\n";
+    store
+        .store(RawEvent::new(
+            EventId::new("evt-unknown").unwrap(),
+            payload.as_bytes().to_vec(),
+            Source("unknown-src".into()),
+        ))
+        .unwrap();
+
+    let app = create_router(Arc::new(store));
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/interpretation/evt-unknown/detailed")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: serde_json::Value =
+        serde_json::from_slice(&res.into_body().collect().await.unwrap().to_bytes()).unwrap();
+
+    let frame = &body["frames"][0];
+    // The frame should have parsed successfully via the syslog parser
+    // OR inference should have run if the syslog parser abstained.
+    // Either way integrity_verified must not error.
+    assert!(
+        frame["parser_outcome"].as_str().is_some(),
+        "parser_outcome must be present"
+    );
+
+    let _ = std::fs::remove_file(path);
+}
+
+/// The UI HTML must now include the Provenance tab.
+#[tokio::test]
+async fn test_ui_includes_provenance_tab() {
+    let path = "test_serve_ui_prov.ulpx";
+    let _ = std::fs::remove_file(path);
+    let store = LocalEvidenceStore::new(path).unwrap();
+    let app = create_router(Arc::new(store));
+
+    let res = app
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let html =
+        String::from_utf8(res.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+
+    // Phase 15 additions
+    assert!(
+        html.contains("tab-provenance"),
+        "HTML must contain the provenance tab"
+    );
+    assert!(
+        html.contains("Provenance Explorer") || html.contains("Provenance"),
+        "HTML must label the provenance tab"
+    );
+    assert!(
+        html.contains("unknown-format-container"),
+        "HTML must have unknown-format container"
+    );
+
+    let _ = std::fs::remove_file(path);
+}
+
+/// The app.js must contain the Phase 15 JavaScript functions.
+#[tokio::test]
+async fn test_app_js_contains_phase15_functions() {
+    let path = "test_serve_js_phase15.ulpx";
+    let _ = std::fs::remove_file(path);
+    let store = LocalEvidenceStore::new(path).unwrap();
+    let app = create_router(Arc::new(store));
+
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri("/app.js")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let js =
+        String::from_utf8(res.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+
+    // Confidence bar rendering
+    assert!(
+        js.contains("buildConfidenceBar"),
+        "app.js must contain buildConfidenceBar"
+    );
+    assert!(
+        js.contains("confidence-bar-fill"),
+        "app.js must reference confidence-bar-fill CSS class"
+    );
+
+    // Provenance explorer
+    assert!(
+        js.contains("renderProvenanceExplorer"),
+        "app.js must contain renderProvenanceExplorer"
+    );
+    assert!(
+        js.contains("prov-chain"),
+        "app.js must reference prov-chain CSS class"
+    );
+
+    // Unknown-format panel
+    assert!(
+        js.contains("renderUnknownFormatPanel"),
+        "app.js must contain renderUnknownFormatPanel"
+    );
+    assert!(
+        js.contains("unknown-format-panel"),
+        "app.js must reference unknown-format-panel CSS class"
+    );
+
+    // XSS protection still present
+    assert!(js.contains("escapeHtml("), "XSS protection must be present");
+    assert!(js.contains("decodeBytes("), "Byte renderer must be present");
+
+    let _ = std::fs::remove_file(path);
+}

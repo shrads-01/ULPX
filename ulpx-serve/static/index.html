@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -41,6 +41,7 @@
                     <div class="view-tabs">
                         <button class="tab-btn active" data-tab="evidence">Evidence</button>
                         <button class="tab-btn" data-tab="interpretation">Interpretation</button>
+                        <button class="tab-btn" data-tab="provenance">Provenance</button>
                         <button class="tab-btn" data-tab="replay">Reprocessing</button>
                     </div>
                 </header>
@@ -62,7 +63,19 @@
                         <span id="interpretation-integrity" class="badge"></span>
                     </div>
                     <div class="metadata-grid" id="interpretation-metadata"></div>
+                    <!-- Unknown-format panel inserted here dynamically -->
+                    <div id="unknown-format-container"></div>
                     <div id="frames-container"></div>
+                </div>
+
+                <div class="tab-content" id="tab-provenance">
+                    <div class="section-header">
+                        <h3>Provenance Explorer</h3>
+                        <span class="badge badge-warning">Field Lineage</span>
+                    </div>
+                    <div id="provenance-explorer-container">
+                        <div style="color: var(--text-muted);">Load an interpretation first.</div>
+                    </div>
                 </div>
 
                 <div class="tab-content" id="tab-replay">

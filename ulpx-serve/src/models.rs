@@ -13,6 +13,7 @@ pub struct ApiRawEvent {
     pub event_id: String,
     pub source: String,
     pub payload_base64: String,
+    pub size_bytes: usize,
     pub integrity: Option<ApiIntegrityMetadata>,
 }
 
@@ -24,10 +25,12 @@ pub struct ApiIntegrityMetadata {
 
 impl From<&RawEvent> for ApiRawEvent {
     fn from(ev: &RawEvent) -> Self {
+        let raw = ev.as_bytes();
         Self {
             event_id: ev.metadata.event_id.as_str().to_string(),
             source: ev.metadata.source.0.clone(),
-            payload_base64: general_purpose::STANDARD.encode(ev.as_bytes()),
+            size_bytes: raw.len(),
+            payload_base64: general_purpose::STANDARD.encode(raw),
             integrity: ev
                 .metadata
                 .integrity
