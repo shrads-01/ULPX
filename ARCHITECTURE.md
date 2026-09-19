@@ -1,7 +1,7 @@
-﻿# ULPX -- Architecture
+# ULPX -- Architecture
 
 > **Status**: Living document. Updated after each implemented phase.
-> Last updated: Phase 14 Object Storage Boundary.
+> Last updated: Phase 18 Documentation / Benchmark.
 
 ---
 
@@ -215,36 +215,36 @@ The following capabilities work with no network connection, no external services
 
 ---
 
-## Implemented Infrastructure (Phase 14)
+## Implemented Infrastructure (Phase 18)
 
 ### Authoritative evidence:
     EvidenceStore (LocalEvidenceStore)
 
 ### Derived artifacts:
     Parquet (ulpx-parquet) / Object Storage (ulpx-object-store)
+    PostgreSQL (ulpx-postgres) / OpenSearch (ulpx-opensearch)
 
 ### Offline operation:
-    LocalObjectStore, CLI, and REST API require no network.
+    LocalObjectStore, CLI, REST API, and Docker Air-gap require no network.
 
-- **Parquet Export**: Deterministic export layer (ulpx-parquet). Parquet is a derived frame-level export / analytics representation; the authoritative lossless evidence remains in EvidenceStore.
-
-- **Local REST API (ulpx-serve)**: Exposes basic read-only evidence retrieval (/api/v1/evidence/:id) and interpretation retrieval (/api/v1/interpretation/:id) directly over the existing LocalEvidenceStore and ReplayPipeline.
-- **Zero-Network Ingestion**: The offline CLI (ulpx process) remains fully functional without any network requirement.
+- **Parquet Export**: Deterministic export layer (ulpx-parquet). Parquet is a derived frame-level export / analytics representation.
+- **PostgreSQL**: Persistent operational record of schemas/indices (ulpx-postgres).
+- **OpenSearch**: Derived searchable output projection for interpretations (ulpx-opensearch).
+- **Air-Gapped Deployment**: Full Docker Compose environment isolating network access, validating ingestion, parsing, inference, and storage without internet (ulpx-e2e).
+- **Local REST API (ulpx-serve)**: Exposes read-only evidence retrieval (`/api/v1/evidence/:id`), interpretation retrieval (`/api/v1/interpretation/:id/detailed`), and ephemeral replay (`/api/v1/replay`).
+- **Zero-Network Ingestion**: The offline CLI (`ulpx process`) remains fully functional without any network requirement.
+- **Benchmarking (ulpx-bench)**: Data-driven deterministic correctness and performance benchmark suite.
 
 ## Future Infrastructure (Not Implemented)
 
 - **Kafka / Redpanda**: For distributed log ingestion.
-- **PostgreSQL (ulpx-postgres)**: Persistent operational record/index of interpretations. Explicitly does NOT own raw evidence. PostgreSQL configuration rows are immutable historical representations, not a mutable runtime configuration registry.
-- **OpenSearch (ulpx-opensearch)**: Derived searchable output projection for interpretations. Explicitly does NOT own raw evidence and must never overlap with EvidenceStore. Document identity is derived from InterpretationId + frame index.
-
 - **Future remote object storage**: may be introduced as another implementation later (e.g. S3).
 - **Production API Server**: Authentication, authorization, and rate limiting are not yet implemented.
 
-## Known limitations (Phase 14 REST API & Object Store)
+## Known limitations (Phase 18)
 
 - **In-memory index**: `LocalEvidenceStore` builds its entire `EventId` index in memory at startup via an O(N) sequential file scan.
 - **Unbounded log growth**: the append-only log file is never compacted or rotated.
 - **Silent tail recovery**: malformed trailing records are silently discarded on startup.
 - **Memory buffering**: Ingestion currently buffers entire streams into memory.
-- **No interpretation persistence**: `Interpretation` records are ephemeral.
-- **No export projections**: OCSF and ECS output are not implemented.
+- **Categorical Confidence**: Inference operates on discrete categorical confidence (`Low/Medium/High`) using exact rule counters. True probabilistic calibration is mathematically impossible without numeric probability signals and is NOT IMPLEMENTED.
