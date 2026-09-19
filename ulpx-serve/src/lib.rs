@@ -1,5 +1,6 @@
-﻿pub mod models;
+pub mod models;
 
+use crate::models::{ApiInterpretation, ApiRawEvent};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -8,17 +9,16 @@ use axum::{
 };
 use std::sync::Arc;
 use ulpx_core::event::EventId;
-use ulpx_core::storage::{EvidenceStore, StoreError};
 use ulpx_core::framing::newline::NewlineFramer;
-use ulpx_core::parser::{LifecycleStage, ParserRegistry};
+use ulpx_core::parser::cef::CefParser;
 use ulpx_core::parser::json::JsonParser;
 use ulpx_core::parser::syslog::SyslogParser;
-use ulpx_core::parser::cef::CefParser;
+use ulpx_core::parser::{LifecycleStage, ParserRegistry};
+use ulpx_core::storage::{EvidenceStore, StoreError};
 use ulpx_infer::engine::InferenceEngine;
-use ulpx_mapping::engine::MappingEngine;
 use ulpx_ir::convert::CompositeConverter;
-use ulpx_replay::{ReplayPipeline, interpretation::ComponentConfig};
-use crate::models::{ApiRawEvent, ApiInterpretation};
+use ulpx_mapping::engine::MappingEngine;
+use ulpx_replay::{interpretation::ComponentConfig, ReplayPipeline};
 
 pub struct AppState {
     pub store: Arc<dyn EvidenceStore + Send + Sync>,
@@ -36,14 +36,20 @@ async fn get_evidence(
     State(state): State<Arc<AppState>>,
     Path(event_id): Path<String>,
 ) -> Result<Json<ApiRawEvent>, (StatusCode, String)> {
-    let id = EventId::new(event_id.clone())
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid EventId format".to_string()))?;
+    let id = EventId::new(event_id.clone()).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            "Invalid EventId format".to_string(),
+        )
+    })?;
 
-    let event = state.store.retrieve(&id)
-        .map_err(|e| match e {
-            StoreError::NotFound => (StatusCode::NOT_FOUND, "Event not found".to_string()),
-            _ => (StatusCode::INTERNAL_SERVER_ERROR, "Internal store error".to_string()),
-        })?;
+    let event = state.store.retrieve(&id).map_err(|e| match e {
+        StoreError::NotFound => (StatusCode::NOT_FOUND, "Event not found".to_string()),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Internal store error".to_string(),
+        ),
+    })?;
 
     Ok(Json(ApiRawEvent::from(&event)))
 }
@@ -52,16 +58,20 @@ async fn get_interpretation(
     State(state): State<Arc<AppState>>,
     Path(event_id): Path<String>,
 ) -> Result<Json<ApiInterpretation>, (StatusCode, String)> {
-    let id = EventId::new(event_id.clone())
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid EventId format".to_string()))?;
+    let id = EventId::new(event_id.clone()).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            "Invalid EventId format".to_string(),
+        )
+    })?;
 
     let framer = NewlineFramer;
-    
+
     let mut parser_registry = ParserRegistry::new();
     let _ = parser_registry.register(Box::new(JsonParser::new()), LifecycleStage::Deployed);
     let _ = parser_registry.register(Box::new(SyslogParser::new()), LifecycleStage::Deployed);
     let _ = parser_registry.register(Box::new(CefParser::new()), LifecycleStage::Deployed);
-    
+
     let inference_engine = InferenceEngine::default();
     let ir_converter = CompositeConverter::default_registry();
     let mapping_engine = MappingEngine::default_registry();
@@ -83,14 +93,21 @@ async fn get_interpretation(
         },
     );
 
-    let interpretation = pipeline.replay(&id)
-        .map_err(|e| match e {
-            ulpx_core::storage::StoreError::NotFound => (StatusCode::NOT_FOUND, "Event not found".to_string()),
-            _ => (StatusCode::INTERNAL_SERVER_ERROR, "Internal replay error".to_string()),
-        })?;
+    let interpretation = pipeline.replay(&id).map_err(|e| match e {
+        ulpx_core::storage::StoreError::NotFound => {
+            (StatusCode::NOT_FOUND, "Event not found".to_string())
+        }
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Internal replay error".to_string(),
+        ),
+    })?;
 
     if !interpretation.integrity_verified {
-        return Err((StatusCode::CONFLICT, "Integrity verification failed for event".to_string()));
+        return Err((
+            StatusCode::CONFLICT,
+            "Integrity verification failed for event".to_string(),
+        ));
     }
 
     Ok(Json(ApiInterpretation::from(&interpretation)))

@@ -1,4 +1,4 @@
-﻿use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process;
@@ -20,9 +20,9 @@ pub enum ObjectStoreError {
 
 pub trait ObjectStore: Send + Sync {
     /// Writes bytes to the object store.
-    /// 
+    ///
     /// **Overwrite semantics**:
-    /// Overwrites the object if it already exists. On Windows, this replaces the target 
+    /// Overwrites the object if it already exists. On Windows, this replaces the target
     /// unless it is locked by another process (which yields an I/O error).
     ///
     /// **Atomicity guarantee**:
@@ -32,10 +32,10 @@ pub trait ObjectStore: Send + Sync {
     /// - A failed temporary write does not intentionally replace the existing destination.
     /// - Concurrent writes to the same key will succeed individually, but the last rename wins.
     fn put(&self, key: &str, data: &[u8]) -> Result<(), ObjectStoreError>;
-    
+
     /// Retrieves bytes from the object store.
     fn get(&self, key: &str) -> Result<Vec<u8>, ObjectStoreError>;
-    
+
     /// Checks if an object exists. Distinguishes between NotFound and actual filesystem errors.
     fn exists(&self, key: &str) -> Result<bool, ObjectStoreError>;
 }
@@ -69,7 +69,7 @@ impl LocalObjectStore {
         }
 
         // Limitation: Object keys cannot lexically escape the configured root;
-        // however, the implementation does not provide hostile-filesystem confinement 
+        // however, the implementation does not provide hostile-filesystem confinement
         // against pre-existing symlinks or Windows reparse points.
         Ok(self.root.join(normalized_key))
     }
@@ -78,7 +78,7 @@ impl LocalObjectStore {
 impl ObjectStore for LocalObjectStore {
     fn put(&self, key: &str, data: &[u8]) -> Result<(), ObjectStoreError> {
         let final_path = self.resolve_key(key)?;
-        
+
         if let Some(parent) = final_path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -89,11 +89,18 @@ impl ObjectStore for LocalObjectStore {
             let count = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
             let tid = thread::current().id();
             let pid = process::id();
-            let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+            let ts = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
             let tmp_name = format!("tmp.{}.{}.{:?}.{}", pid, count, tid, ts);
             let tmp_path = final_path.with_extension(tmp_name);
 
-            match OpenOptions::new().write(true).create_new(true).open(&tmp_path) {
+            match OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&tmp_path)
+            {
                 Ok(f) => break (f, tmp_path),
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                     attempts += 1;
@@ -108,12 +115,12 @@ impl ObjectStore for LocalObjectStore {
 
         // Write to temporary file and sync
         let write_result = file.write_all(data).and_then(|_| file.sync_all());
-        
+
         if let Err(e) = write_result {
             let _ = fs::remove_file(&tmp_path);
             return Err(ObjectStoreError::Io(e));
         }
-        
+
         // Ensure file handle is closed before rename (critical for Windows)
         drop(file);
 

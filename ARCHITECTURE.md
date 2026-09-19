@@ -235,7 +235,8 @@ The following capabilities work with no network connection, no external services
 
 - **Kafka / Redpanda**: For distributed log ingestion.
 - **PostgreSQL (ulpx-postgres)**: Persistent operational record/index of interpretations. Explicitly does NOT own raw evidence. PostgreSQL configuration rows are immutable historical representations, not a mutable runtime configuration registry.
-- **OpenSearch**: For full-text search of interpretations.
+- **OpenSearch (ulpx-opensearch)**: Derived searchable output projection for interpretations. Explicitly does NOT own raw evidence and must never overlap with EvidenceStore. Document identity is derived from InterpretationId + frame index.
+
 - **Future remote object storage**: may be introduced as another implementation later (e.g. S3).
 - **Production API Server**: Authentication, authorization, and rate limiting are not yet implemented.
 
@@ -246,4 +247,4 @@ The following capabilities work with no network connection, no external services
 - **Silent tail recovery**: malformed trailing records are silently discarded on startup.
 - **Memory buffering**: Ingestion currently buffers entire streams into memory.
 - **No interpretation persistence**: `Interpretation` records are ephemeral.
-- **No export projections**: OCSF, ECS, and OpenSearch output are not implemented.
+- **No export projections**: OCSF and ECS output are not implemented.

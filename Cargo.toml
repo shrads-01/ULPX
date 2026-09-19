@@ -3,9 +3,14 @@ resolver = "2"
 members = [
     "ulpx-core",
     "ulpx-ir",
-    "ulpx-ingest", "ulpx-mapping",
-    "ulpx-infer", "ulpx-onboard", "ulpx-replay", "ulpx-serve",
+    "ulpx-ingest",
+    "ulpx-mapping",
+    "ulpx-infer",
+    "ulpx-onboard",
+    "ulpx-replay",
+    "ulpx-serve",
     "ulpx-postgres",
     "ulpx-parquet",
     "ulpx-object-store",
+    "ulpx-opensearch"
 ]
