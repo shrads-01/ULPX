@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  ulpx:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: ulpx_airgap
+    ports:
+      - "3000:3000"
+    environment:
+      - ULPX_STORE_PATH=/data/.ulpx_store
+    volumes:
+      - ulpx_data:/data
+    networks:
+      - airgap_net
+
+networks:
+  airgap_net:
+    name: ulpx_airgap_net
+    driver: bridge
+    internal: true # No external internet access
+
+volumes:
+  ulpx_data:

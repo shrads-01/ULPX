@@ -103,7 +103,7 @@ async fn test_schema_and_idempotent_persistence() {
         .expect("Failed to save conflict");
 
     // Query the database to prove the ORIGINAL persisted metadata remains unchanged.
-    let row = sqlx::query("SELECT created_at_ns FROM interpretations WHERE interpretation_id = ")
+    let row = sqlx::query("SELECT created_at_ns FROM interpretations WHERE interpretation_id = $1")
         .bind(interp_id.0.to_string())
         .fetch_one(&pool)
         .await
@@ -125,12 +125,12 @@ async fn test_schema_and_idempotent_persistence() {
     let config_hash = config.configuration_identity().unwrap().to_string();
     sqlx::query(r#"
         INSERT INTO pipeline_configurations (config_hash, framer_id, framer_version, mapper_id, mapper_version, parser_registry_json, inference_detectors_json)
-        VALUES (, 'fake_framer', '9.9', 'fake_mapper', '9.9', '[]', '[]')
+        VALUES ($1, 'fake_framer', '9.9', 'fake_mapper', '9.9', '[]', '[]')
         ON CONFLICT (config_hash) DO NOTHING
     "#).bind(&config_hash).execute(&pool).await.unwrap();
 
     let framer_id: String =
-        sqlx::query("SELECT framer_id FROM pipeline_configurations WHERE config_hash = ")
+        sqlx::query("SELECT framer_id FROM pipeline_configurations WHERE config_hash = $1")
             .bind(&config_hash)
             .fetch_one(&pool)
             .await
@@ -162,7 +162,7 @@ async fn test_schema_and_idempotent_persistence() {
         .await
         .expect("Failed save second config");
 
-    let count: i64 = sqlx::query("SELECT COUNT(*) FROM interpretations WHERE event_id = ")
+    let count: i64 = sqlx::query("SELECT COUNT(*) FROM interpretations WHERE event_id = $1")
         .bind(event_id.as_str())
         .fetch_one(&pool)
         .await
@@ -223,7 +223,7 @@ async fn test_schema_and_idempotent_persistence() {
     let exists = repo.has_interpretation(&interp_id3).await.unwrap();
     assert!(!exists, "interpretation row must be rolled back");
 
-    let count: i64 = sqlx::query("SELECT COUNT(*) FROM events WHERE event_id = ")
+    let count: i64 = sqlx::query("SELECT COUNT(*) FROM events WHERE event_id = $1")
         .bind(event_id3.as_str())
         .fetch_one(&pool)
         .await
@@ -233,7 +233,7 @@ async fn test_schema_and_idempotent_persistence() {
 
     let config_hash3 = config3.configuration_identity().unwrap().to_string();
     let count: i64 =
-        sqlx::query("SELECT COUNT(*) FROM pipeline_configurations WHERE config_hash = ")
+        sqlx::query("SELECT COUNT(*) FROM pipeline_configurations WHERE config_hash = $1")
             .bind(&config_hash3)
             .fetch_one(&pool)
             .await
@@ -242,7 +242,7 @@ async fn test_schema_and_idempotent_persistence() {
     assert_eq!(count, 0, "pipeline_configurations must be rolled back");
 
     let count: i64 =
-        sqlx::query("SELECT COUNT(*) FROM interpretation_frames WHERE interpretation_id = ")
+        sqlx::query("SELECT COUNT(*) FROM interpretation_frames WHERE interpretation_id = $1")
             .bind(interp_id3.0.to_string())
             .fetch_one(&pool)
             .await

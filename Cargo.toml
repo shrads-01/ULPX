@@ -1,4 +1,4 @@
-﻿[workspace]
+[workspace]
 resolver = "2"
 members = [
     "ulpx-core",
@@ -8,7 +8,7 @@ members = [
     "ulpx-infer",
     "ulpx-onboard",
     "ulpx-replay",
-    "ulpx-serve",
+    "ulpx-serve", "ulpx-e2e",
     "ulpx-postgres",
     "ulpx-parquet",
     "ulpx-object-store",

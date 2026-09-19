@@ -62,7 +62,8 @@ impl From<&ComponentConfig> for ComponentConfigJson {
 
 impl InterpretationRepository for PostgresInterpretationRepository {
     async fn initialize_schema(&self) -> Result<(), PostgresError> {
-        let sql = r#"
+        sqlx::query(
+            r#"
             CREATE TABLE IF NOT EXISTS pipeline_configurations (
                 config_hash TEXT PRIMARY KEY,
                 framer_id TEXT NOT NULL,
@@ -72,37 +73,52 @@ impl InterpretationRepository for PostgresInterpretationRepository {
                 parser_registry_json JSONB NOT NULL,
                 inference_detectors_json JSONB NOT NULL
             );
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
 
-            -- Minimal relational projection for events
+        sqlx::query(
+            r#"
             CREATE TABLE IF NOT EXISTS events (
                 event_id TEXT PRIMARY KEY
             );
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
 
+        sqlx::query(
+            r#"
             CREATE TABLE IF NOT EXISTS interpretations (
                 interpretation_id TEXT PRIMARY KEY,
                 event_id TEXT NOT NULL,
                 config_hash TEXT NOT NULL REFERENCES pipeline_configurations(config_hash),
                 created_at_ns TEXT NOT NULL,
                 integrity_verified BOOLEAN NOT NULL,
-                -- Diagnostic/operational representation of integrity errors
                 integrity_error_json JSONB,
-                -- Diagnostic/operational representation of trailing frame errors
                 trailing_frame_error_json JSONB
             );
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
 
+        sqlx::query(
+            r#"
             CREATE TABLE IF NOT EXISTS interpretation_frames (
                 interpretation_id TEXT NOT NULL REFERENCES interpretations(interpretation_id) ON DELETE CASCADE,
                 frame_index INTEGER NOT NULL,
                 parser_id TEXT,
                 parser_version TEXT,
                 parser_outcome TEXT NOT NULL,
-                -- Diagnostic/operational representation of inference decisions
                 inference_decision_json JSONB,
                 PRIMARY KEY (interpretation_id, frame_index)
             );
-        "#;
-
-        sqlx::query(sql).execute(&self.pool).await?;
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -139,7 +155,7 @@ impl InterpretationRepository for PostgresInterpretationRepository {
             INSERT INTO pipeline_configurations (
                 config_hash, framer_id, framer_version, mapper_id, mapper_version,
                 parser_registry_json, inference_detectors_json
-            ) VALUES (, , , , , , )
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (config_hash) DO NOTHING
         "#,
         )
@@ -156,7 +172,7 @@ impl InterpretationRepository for PostgresInterpretationRepository {
         // 2. Events projection (Idempotent stub)
         sqlx::query(
             r#"
-            INSERT INTO events (event_id) VALUES ()
+            INSERT INTO events (event_id) VALUES ($1)
             ON CONFLICT (event_id) DO NOTHING
         "#,
         )
@@ -187,7 +203,7 @@ impl InterpretationRepository for PostgresInterpretationRepository {
             INSERT INTO interpretations (
                 interpretation_id, event_id, config_hash, created_at_ns,
                 integrity_verified, integrity_error_json, trailing_frame_error_json
-            ) VALUES (, , , , , , )
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (interpretation_id) DO NOTHING
         "#,
         )
@@ -236,8 +252,7 @@ impl InterpretationRepository for PostgresInterpretationRepository {
                 INSERT INTO interpretation_frames (
                     interpretation_id, frame_index, parser_id, parser_version,
                     parser_outcome, inference_decision_json
-                ) VALUES (, , , , , )
-                ON CONFLICT (interpretation_id, frame_index) DO NOTHING
+                ) VALUES ($1, $2, $3, $4, $5, $6)
             "#,
             )
             .bind(&interp_id_str)
@@ -258,7 +273,7 @@ impl InterpretationRepository for PostgresInterpretationRepository {
         let id_str = id.0.to_string();
         let exists: (bool,) = sqlx::query_as(
             r#"
-            SELECT EXISTS(SELECT 1 FROM interpretations WHERE interpretation_id = )
+            SELECT EXISTS(SELECT 1 FROM interpretations WHERE interpretation_id = $1)
         "#,
         )
         .bind(&id_str)
