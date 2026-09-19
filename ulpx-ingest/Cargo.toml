@@ -17,3 +17,10 @@ ulpx-replay = { path = "../ulpx-replay" }
 ulpx-infer = { path = "../ulpx-infer" }
 ulpx-mapping = { path = "../ulpx-mapping" }
 ulpx-ir = { path = "../ulpx-ir" }
+rskafka = "0.6.0"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+futures-util = "0.3.34"
+
+
+[dev-dependencies]
+chrono = "=0.4.39"

@@ -5,6 +5,8 @@ use ulpx_core::event::{EventId, RawEvent, Source};
 use ulpx_core::framing::{FrameError, Framer};
 use ulpx_core::storage::{EvidenceStore, StoreError};
 
+pub mod kafka;
+
 /// Errors that can occur during offline ingestion.
 #[derive(Debug)]
 pub enum IngestionError {
@@ -99,8 +101,20 @@ pub fn ingest_stream<R: Read>(
 ) -> Result<IngestionResult, IngestionError> {
     let mut buffer = Vec::new();
     stream.read_to_end(&mut buffer)?;
+    ingest_buffer(&buffer, source_name, framer, store, 0)
+}
 
-    let (records, trailing_error) = framer.frame_all(&buffer);
+/// Ingests an in-memory buffer, frames it into records, and stores them.
+/// The `base_index` is used to ensure deterministic EventIds across multiple buffers
+/// (e.g. from a streaming source).
+pub fn ingest_buffer(
+    buffer: &[u8],
+    source_name: &str,
+    framer: &dyn Framer,
+    store: &mut dyn EvidenceStore,
+    base_index: u64,
+) -> Result<IngestionResult, IngestionError> {
+    let (records, trailing_error) = framer.frame_all(buffer);
 
     // Fail clearly on malformed framing or incomplete records
     if let Some(err) = trailing_error {
@@ -110,7 +124,8 @@ pub fn ingest_stream<R: Read>(
     let total_records = records.len();
     let mut stored_records = 0;
 
-    for (index, record) in records.into_iter().enumerate() {
+    for (i, record) in records.into_iter().enumerate() {
+        let index = base_index + i as u64;
         let raw_bytes = if let Some(range) = record.byte_range() {
             match buffer.get(range) {
                 Some(slice) => slice.to_vec(),
@@ -124,7 +139,7 @@ pub fn ingest_stream<R: Read>(
         } else {
             record.into_bytes()
         };
-        let event_id = generate_event_id(source_name, index as u64, &raw_bytes);
+        let event_id = generate_event_id(source_name, index, &raw_bytes);
 
         let raw_event = RawEvent::new(event_id, raw_bytes, Source(source_name.to_string()));
 
