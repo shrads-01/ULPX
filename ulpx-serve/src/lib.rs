@@ -1,8 +1,8 @@
-﻿pub mod models;
+pub mod models;
 
-use crate::models::{ApiDetailedInterpretation, ApiRawEvent, ApiEventSummary, ReplayRequest};
+use crate::models::{ApiDetailedInterpretation, ApiEventSummary, ApiRawEvent, ReplayRequest};
 use axum::{
-    extract::{Path, State, Query},
+    extract::{Path, Query, State},
     http::StatusCode,
     routing::{get, post},
     Json, Router,
@@ -28,9 +28,34 @@ pub struct AppState {
 pub fn create_router(store: Arc<dyn EvidenceStore + Send + Sync>) -> Router {
     let state = Arc::new(AppState { store });
     Router::new()
+        .route(
+            "/",
+            get(|| async { axum::response::Html(include_str!("../static/index.html")) }),
+        )
+        .route(
+            "/app.js",
+            get(|| async {
+                (
+                    [(axum::http::header::CONTENT_TYPE, "application/javascript")],
+                    include_str!("../static/app.js"),
+                )
+            }),
+        )
+        .route(
+            "/style.css",
+            get(|| async {
+                (
+                    [(axum::http::header::CONTENT_TYPE, "text/css")],
+                    include_str!("../static/style.css"),
+                )
+            }),
+        )
         .route("/api/v1/events", get(list_events))
         .route("/api/v1/evidence/:event_id", get(get_evidence))
-        .route("/api/v1/interpretation/:event_id/detailed", get(get_interpretation_detailed))
+        .route(
+            "/api/v1/interpretation/:event_id/detailed",
+            get(get_interpretation_detailed),
+        )
         .route("/api/v1/replay", post(ephemeral_replay))
         .with_state(state)
 }
@@ -145,36 +170,61 @@ async fn ephemeral_replay(
     // Phase 15 declarative boundary enforcement:
     // Only the explicit built-in components are permitted.
     // Dynamic WASM parser loading is deferred to a future phase.
-    if payload.pipeline_config.framer_id != "NewlineFramer" || payload.pipeline_config.framer_version != "1.0.0" {
-        return Err((StatusCode::BAD_REQUEST, "Unsupported framer requested".to_string()));
+    if payload.pipeline_config.framer_id != "NewlineFramer"
+        || payload.pipeline_config.framer_version != "1.0.0"
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Unsupported framer requested".to_string(),
+        ));
     }
-    if payload.pipeline_config.mapper_id != "DefaultMapper" || payload.pipeline_config.mapper_version != "1.0.0" {
-        return Err((StatusCode::BAD_REQUEST, "Unsupported mapper requested".to_string()));
+    if payload.pipeline_config.mapper_id != "DefaultMapper"
+        || payload.pipeline_config.mapper_version != "1.0.0"
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Unsupported mapper requested".to_string(),
+        ));
     }
 
     let allowed_parsers = ["json-flat", "syslog", "cef"];
     for p in &payload.pipeline_config.parser_registry {
         if !allowed_parsers.contains(&p.as_str()) {
-            return Err((StatusCode::BAD_REQUEST, format!("Unsupported parser requested: {}", p)));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("Unsupported parser requested: {}", p),
+            ));
         }
     }
-    
+
     let allowed_detectors = ["json", "syslog", "cef"];
     for d in &payload.pipeline_config.inference_detectors {
         if !allowed_detectors.contains(&d.as_str()) {
-            return Err((StatusCode::BAD_REQUEST, format!("Unsupported inference detector requested: {}", d)));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("Unsupported inference detector requested: {}", d),
+            ));
         }
     }
 
     let framer = NewlineFramer;
     let mut parser_registry = ParserRegistry::new();
-    
+
     // Only register the parsers explicitly requested
     for p in &payload.pipeline_config.parser_registry {
         match p.as_str() {
-            "json-flat" => { let _ = parser_registry.register(Box::new(JsonParser::new()), LifecycleStage::Deployed); }
-            "syslog" => { let _ = parser_registry.register(Box::new(SyslogParser::new()), LifecycleStage::Deployed); }
-            "cef" => { let _ = parser_registry.register(Box::new(CefParser::new()), LifecycleStage::Deployed); }
+            "json-flat" => {
+                let _ =
+                    parser_registry.register(Box::new(JsonParser::new()), LifecycleStage::Deployed);
+            }
+            "syslog" => {
+                let _ = parser_registry
+                    .register(Box::new(SyslogParser::new()), LifecycleStage::Deployed);
+            }
+            "cef" => {
+                let _ =
+                    parser_registry.register(Box::new(CefParser::new()), LifecycleStage::Deployed);
+            }
             _ => {}
         }
     }
@@ -183,7 +233,9 @@ async fn ephemeral_replay(
     for d in &payload.pipeline_config.inference_detectors {
         match d.as_str() {
             "json" => inference_engine.add_detector("json", ulpx_infer::evidence::detect_json),
-            "syslog" => inference_engine.add_detector("syslog", ulpx_infer::evidence::detect_syslog),
+            "syslog" => {
+                inference_engine.add_detector("syslog", ulpx_infer::evidence::detect_syslog)
+            }
             "cef" => inference_engine.add_detector("cef", ulpx_infer::evidence::detect_cef),
             _ => {}
         }

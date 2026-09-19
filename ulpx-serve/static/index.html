@@ -1,0 +1,115 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ULPX Analyst UI</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div class="layout">
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <h2>ULPX</h2>
+                <div class="subtitle">Universal Lossless Security Telemetry</div>
+            </div>
+            
+            <div class="events-panel">
+                <div class="panel-header">
+                    <h3>Events</h3>
+                    <button id="refresh-events-btn" title="Refresh">↻</button>
+                </div>
+                <div id="events-list" class="events-list">
+                    <!-- Events will be populated here -->
+                </div>
+                <div class="pagination">
+                    <button id="prev-page-btn" disabled>&lt;</button>
+                    <span id="page-info">Page 1</span>
+                    <button id="next-page-btn" disabled>&gt;</button>
+                </div>
+            </div>
+        </nav>
+
+        <main class="main-content">
+            <div id="empty-state" class="empty-state">
+                Select an event to view its details.
+            </div>
+
+            <div id="investigation-view" class="investigation-view hidden">
+                <header class="view-header">
+                    <h2 id="current-event-id">Event ID</h2>
+                    <div class="view-tabs">
+                        <button class="tab-btn active" data-tab="evidence">Evidence</button>
+                        <button class="tab-btn" data-tab="interpretation">Interpretation</button>
+                        <button class="tab-btn" data-tab="replay">Reprocessing</button>
+                    </div>
+                </header>
+
+                <div class="tab-content active" id="tab-evidence">
+                    <div class="section-header">
+                        <h3>Raw Evidence</h3>
+                        <span class="badge badge-authoritative">Authoritative</span>
+                    </div>
+                    <div class="metadata-grid" id="evidence-metadata">
+                        <!-- Metadata populated here -->
+                    </div>
+                    <pre class="raw-bytes" id="evidence-bytes"></pre>
+                </div>
+
+                <div class="tab-content" id="tab-interpretation">
+                    <div class="section-header">
+                        <h3>Detailed Interpretation</h3>
+                        <span id="interpretation-integrity" class="badge"></span>
+                    </div>
+                    <div class="metadata-grid" id="interpretation-metadata"></div>
+                    <div id="frames-container"></div>
+                </div>
+
+                <div class="tab-content" id="tab-replay">
+                    <div class="section-header">
+                        <h3>Ephemeral Reprocessing</h3>
+                    </div>
+                    <div class="replay-warning">
+                        Replay executes a declarative pipeline against the raw evidence. It does not modify the original stored evidence.
+                    </div>
+                    <form id="replay-form" class="replay-form">
+                        <div class="form-group">
+                            <label>Framer</label>
+                            <div class="input-row">
+                                <input type="text" id="framer-id" value="NewlineFramer" readonly>
+                                <input type="text" id="framer-version" value="1.0.0" readonly>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Mapper</label>
+                            <div class="input-row">
+                                <input type="text" id="mapper-id" value="DefaultMapper" readonly>
+                                <input type="text" id="mapper-version" value="1.0.0" readonly>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Parsers (Comma-separated)</label>
+                            <input type="text" id="parser-registry" value="json-flat, syslog, cef">
+                            <small>Supported built-ins: json-flat, syslog, cef</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Inference Detectors (Comma-separated)</label>
+                            <input type="text" id="inference-detectors" value="json, syslog, cef">
+                            <small>Supported built-ins: json, syslog, cef</small>
+                        </div>
+                        <button type="submit" id="run-replay-btn">Run Reprocessing</button>
+                    </form>
+                    
+                    <div id="replay-results" class="hidden">
+                        <h4>Replay Outcome</h4>
+                        <div class="metadata-grid" id="replay-metadata"></div>
+                        <div id="replay-frames-container"></div>
+                    </div>
+                    <div id="replay-error" class="hidden error-box"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="/app.js"></script>
+</body>
+</html>

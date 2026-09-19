@@ -148,15 +148,16 @@ async fn test_ephemeral_replay_endpoint() {
     let _ = std::fs::remove_file(path);
 }
 
-
 #[tokio::test]
 async fn test_ephemeral_replay_declarative_rejections() {
     let path = "test_serve_replay_rejections.ulpx";
     let _ = std::fs::remove_file(path);
     let mut store = LocalEvidenceStore::new(path).unwrap();
     let id = EventId::new("evt-replay-reject").unwrap();
-    store.store(RawEvent::new(id, vec![], Source("src".into()))).unwrap();
-    
+    store
+        .store(RawEvent::new(id, vec![], Source("src".into())))
+        .unwrap();
+
     let app = create_router(Arc::new(store));
 
     let config = serde_json::json!({
@@ -167,7 +168,7 @@ async fn test_ephemeral_replay_declarative_rejections() {
         "parser_registry": ["json-flat"],
         "inference_detectors": ["json"]
     });
-    
+
     // Helper closure to test a rejection
     let test_rejection = |bad_config: serde_json::Value, expected_status: StatusCode| {
         let app_clone = app.clone();
@@ -176,14 +177,17 @@ async fn test_ephemeral_replay_declarative_rejections() {
                 "event_id": "evt-replay-reject",
                 "pipeline_config": bad_config
             });
-            let response = app_clone.oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/api/v1/replay")
-                    .header("content-type", "application/json")
-                    .body(Body::from(req_body.to_string()))
-                    .unwrap(),
-            ).await.unwrap();
+            let response = app_clone
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/api/v1/replay")
+                        .header("content-type", "application/json")
+                        .body(Body::from(req_body.to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
             assert_eq!(response.status(), expected_status);
         }
     };
@@ -288,6 +292,85 @@ async fn test_ephemeral_replay_does_not_mutate_evidence() {
         .unwrap()
         .len();
     assert_eq!(count_after, 1); // No new event added
+
+    let _ = std::fs::remove_file(path);
+}
+
+#[tokio::test]
+async fn test_ui_routes_serve_static_files() {
+    let path = "test_serve_ui.ulpx";
+    let _ = std::fs::remove_file(path);
+    let store = LocalEvidenceStore::new(path).unwrap();
+    let app = create_router(Arc::new(store));
+
+    // Test index.html
+    let res = app
+        .clone()
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let html =
+        String::from_utf8(res.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+
+    // Core structural assertions
+    assert!(html.contains("ULPX Analyst UI"));
+    assert!(html.contains(r#"<script src="/app.js"></script>"#));
+    assert!(html.contains(r#"<link rel="stylesheet" href="/style.css">"#));
+
+    // Workflow tabs
+    assert!(html.contains(r#""tab-evidence""#));
+    assert!(html.contains(r#""tab-interpretation""#));
+    assert!(html.contains(r#""tab-replay""#));
+
+    // Supported declarative configuration defaults
+    assert!(html.contains(r#"value="NewlineFramer""#));
+    assert!(html.contains(r#"value="DefaultMapper""#));
+    assert!(html.contains(r#"value="json-flat, syslog, cef""#));
+    assert!(html.contains(r#"value="json, syslog, cef""#));
+
+    // Test app.js
+    let res_js = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/app.js")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_js.status(), StatusCode::OK);
+    assert_eq!(
+        res_js.headers().get("content-type").unwrap(),
+        "application/javascript"
+    );
+    let js_content = String::from_utf8(
+        res_js
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(js_content.contains("escapeHtml(")); // Confirm XSS protection is present
+    assert!(js_content.contains("decodeBytes(")); // Confirm byte rendering is present
+
+    // Test style.css
+    let res_css = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/style.css")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_css.status(), StatusCode::OK);
+    assert_eq!(res_css.headers().get("content-type").unwrap(), "text/css");
 
     let _ = std::fs::remove_file(path);
 }
