@@ -22,11 +22,12 @@ use ulpx_mapping::engine::MappingEngine;
 use ulpx_replay::{interpretation::ComponentConfig, ReplayPipeline};
 
 pub struct AppState {
+    pub store_path: String,
     pub store: Arc<dyn EvidenceStore + Send + Sync>,
 }
 
-pub fn create_router(store: Arc<dyn EvidenceStore + Send + Sync>) -> Router {
-    let state = Arc::new(AppState { store });
+pub fn create_router(store: Arc<dyn EvidenceStore + Send + Sync>, store_path: String) -> Router {
+    let state = Arc::new(AppState { store, store_path });
     Router::new()
         .route(
             "/",
@@ -58,6 +59,7 @@ pub fn create_router(store: Arc<dyn EvidenceStore + Send + Sync>) -> Router {
             get(get_interpretation_detailed),
         )
         .route("/api/v1/replay", post(ephemeral_replay))
+        .route("/api/v1/ingest", post(ingest_evidence))
         .with_state(state)
 }
 
@@ -369,4 +371,50 @@ async fn ephemeral_replay(
     })?;
 
     Ok(Json(ApiDetailedInterpretation::from(&interpretation)))
+}
+#[derive(Deserialize)]
+pub struct IngestRequest {
+    pub source_name: String,
+    pub evidence_base64: Option<String>,
+    pub evidence_text: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct IngestResponse {
+    pub total_records: usize,
+    pub stored_records: usize,
+}
+
+async fn ingest_evidence(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<IngestRequest>,
+) -> Result<Json<IngestResponse>, (StatusCode, String)> {
+    let raw_bytes = if let Some(b64) = payload.evidence_base64 {
+        use base64::{Engine as _, engine::general_purpose};
+        general_purpose::STANDARD.decode(&b64).map_err(|e| {
+            (StatusCode::BAD_REQUEST, format!("Invalid base64: {}", e))
+        })?
+    } else if let Some(txt) = payload.evidence_text {
+        txt.into_bytes()
+    } else {
+        return Err((StatusCode::BAD_REQUEST, "Must provide evidence_base64 or evidence_text".to_string()));
+    };
+
+    if raw_bytes.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Evidence is empty".to_string()));
+    }
+
+    let mut ingest_store = ulpx_core::storage::LocalEvidenceStore::new(&state.store_path)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to open store: {}", e)))?;
+
+    let framer = ulpx_core::framing::newline::NewlineFramer;
+
+    // Call existing ingestion logic
+    let result = ulpx_ingest::ingest_buffer(&raw_bytes, &payload.source_name, &framer, &mut ingest_store, 0)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Ingestion failed: {}", e)))?;
+
+    Ok(Json(IngestResponse {
+        total_records: result.total_records,
+        stored_records: result.stored_records,
+    }))
 }

@@ -48,7 +48,7 @@ async fn test_entity_resolution_e2e_local() {
         ))
         .unwrap();
 
-    let app = create_router(Arc::new(store));
+    let app = create_router(Arc::new(store), store_path.to_string_lossy().to_string());
 
     let response = app
         .oneshot(

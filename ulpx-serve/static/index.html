@@ -145,23 +145,40 @@
                 </header>
                 <div class="card ingest-card">
                     <div class="card-body">
-                        <div class="ingest-instruction">
-                            <i class="fa-solid fa-terminal fa-2x"></i>
-                            <div class="ingest-text">
-                                <h3>CLI Ingestion</h3>
-                                <p>Currently, ULPX processes raw evidence securely via the backend pipeline CLI or Kafka ingestion adapter.</p>
-                                <p>To submit a new log or evidence file for analysis, use the <code>ulpx-ingest</code> command line tool from your server environment:</p>
+                                                <div class="ingest-form">
+                            <h3>Upload or Paste Evidence</h3>
+                            <p class="text-muted">Ingest raw logs, CEF, Syslog, or JSON files directly into ULPX.</p>
 
-                                <div class="code-block">
-                                    <pre><code># 1. Create a sample log file
-echo "vendor=ACME product=Firewall action=DENY" > sample.log
-
-# 2. Ingest the file into ULPX
-cargo run -p ulpx-ingest -- process sample.log</code></pre>
-                                    <button class="btn btn-copy" onclick="copyIngestCode()"><i class="fa-regular fa-copy"></i></button>
-                                </div>
-                                <p class="text-muted mt-2">After ingestion, the pipeline will return an Event ID. Navigate to the <strong>Events Stream</strong> to review and analyze the processed evidence.</p>
+                            <div class="form-group">
+                                <label for="ingest-source-name">Source Name</label>
+                                <input type="text" id="ingest-source-name" class="form-control" placeholder="e.g. firewall_logs.txt or manual_paste" required>
                             </div>
+
+                            <div class="form-group">
+                                <label>Evidence Input Method</label>
+                                <div class="tabs-nav">
+                                    <button type="button" class="tab-btn active" onclick="switchIngestTab('paste')">Paste Raw Data</button>
+                                    <button type="button" class="tab-btn" onclick="switchIngestTab('upload')">Upload File</button>
+                                </div>
+
+                                <div id="ingest-tab-paste" class="tab-pane active" style="margin-top: 10px;">
+                                    <textarea id="ingest-raw-text" class="form-control" rows="10" placeholder="Paste your raw evidence here..."></textarea>
+                                </div>
+
+                                <div id="ingest-tab-upload" class="tab-pane hidden" style="margin-top: 10px;">
+                                    <input type="file" id="ingest-file" class="form-control">
+                                    <p class="text-muted" style="margin-top: 5px; font-size: 0.85em;">File will be ingested directly preserving exact bytes.</p>
+                                </div>
+                            </div>
+
+                            <div class="form-actions" style="margin-top: 20px;">
+                                <button type="button" id="btn-submit-ingest" class="btn btn-primary" onclick="submitIngestion()">
+                                    <i class="fa-solid fa-upload"></i> Ingest Evidence
+                                </button>
+                                <span id="ingest-spinner" class="hidden"><i class="fa-solid fa-circle-notch fa-spin"></i> Processing...</span>
+                            </div>
+
+                            <div id="ingest-alert" class="alert hidden" style="margin-top: 20px;"></div>
                         </div>
                     </div>
                 </div>

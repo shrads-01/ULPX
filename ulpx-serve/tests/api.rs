@@ -26,7 +26,7 @@ async fn test_list_events_deterministic_order_and_pagination() {
             .unwrap();
     }
 
-    let app = create_router(Arc::new(store));
+    let app = create_router(Arc::new(store), path.to_string());
 
     let response = app
         .clone()
@@ -68,7 +68,7 @@ async fn test_get_detailed_interpretation_json_parser() {
         ))
         .unwrap();
 
-    let app = create_router(Arc::new(store));
+    let app = create_router(Arc::new(store), path.to_string());
 
     let response = app
         .oneshot(
@@ -110,7 +110,7 @@ async fn test_ephemeral_replay_endpoint() {
         ))
         .unwrap();
 
-    let app = create_router(Arc::new(store));
+    let app = create_router(Arc::new(store), path.to_string());
 
     let config = ApiPipelineConfiguration {
         framer_id: "NewlineFramer".into(),
@@ -158,7 +158,7 @@ async fn test_ephemeral_replay_declarative_rejections() {
         .store(RawEvent::new(id, vec![], Source("src".into())))
         .unwrap();
 
-    let app = create_router(Arc::new(store));
+    let app = create_router(Arc::new(store), path.to_string());
 
     let config = serde_json::json!({
         "framer_id": "NewlineFramer",
@@ -230,7 +230,7 @@ async fn test_ephemeral_replay_does_not_mutate_evidence() {
         ))
         .unwrap();
 
-    let app = create_router(Arc::new(store));
+    let app = create_router(Arc::new(store), path.to_string());
 
     let config = ApiPipelineConfiguration {
         framer_id: "NewlineFramer".into(),
@@ -301,7 +301,7 @@ async fn test_ui_routes_serve_static_files() {
     let path = "test_serve_ui.ulpx";
     let _ = std::fs::remove_file(path);
     let store = LocalEvidenceStore::new(path).unwrap();
-    let app = create_router(Arc::new(store));
+    let app = create_router(Arc::new(store), path.to_string());
 
     // Test index.html
     let res = app
@@ -382,7 +382,7 @@ async fn test_empty_store_returns_zero_events_cleanly() {
 
     // Store is created but no events are added
     let store = LocalEvidenceStore::new(path).unwrap();
-    let app = create_router(Arc::new(store));
+    let app = create_router(Arc::new(store), path.to_string());
 
     let res = app
         .oneshot(
@@ -420,7 +420,7 @@ async fn test_evidence_endpoint_includes_size_bytes() {
         ))
         .unwrap();
 
-    let app = create_router(Arc::new(store));
+    let app = create_router(Arc::new(store), path.to_string());
     let res = app
         .oneshot(
             Request::builder()
@@ -460,7 +460,7 @@ async fn test_interpretation_includes_provenance_data() {
         ))
         .unwrap();
 
-    let app = create_router(Arc::new(store));
+    let app = create_router(Arc::new(store), path.to_string());
     let res = app
         .oneshot(
             Request::builder()
@@ -528,7 +528,7 @@ async fn test_unknown_format_inference_decision_present() {
         ))
         .unwrap();
 
-    let app = create_router(Arc::new(store));
+    let app = create_router(Arc::new(store), path.to_string());
     let res = app
         .oneshot(
             Request::builder()
@@ -561,7 +561,7 @@ async fn test_ui_includes_provenance_tab() {
     let path = "test_serve_ui_prov.ulpx";
     let _ = std::fs::remove_file(path);
     let store = LocalEvidenceStore::new(path).unwrap();
-    let app = create_router(Arc::new(store));
+    let app = create_router(Arc::new(store), path.to_string());
 
     let res = app
         .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
@@ -594,7 +594,7 @@ async fn test_app_js_contains_analyst_ui_functions() {
     let path = "test_serve_js_analyst_ui.ulpx";
     let _ = std::fs::remove_file(path);
     let store = LocalEvidenceStore::new(path).unwrap();
-    let app = create_router(Arc::new(store));
+    let app = create_router(Arc::new(store), path.to_string());
 
     let res = app
         .oneshot(
@@ -642,6 +642,123 @@ async fn test_app_js_contains_analyst_ui_functions() {
     // XSS protection still present
     assert!(js.contains("escapeHtml("), "XSS protection must be present");
     assert!(js.contains("decodeBytes("), "Byte renderer must be present");
+
+    let _ = std::fs::remove_file(path);
+}
+
+#[tokio::test]
+async fn test_ingest_evidence_endpoint() {
+    let path = "test_serve_ingest.ulpx";
+    let _ = std::fs::remove_file(path);
+    let store = LocalEvidenceStore::new(path).unwrap();
+
+    // We must pass the path to create_router now
+    let app = create_router(Arc::new(store), path.to_string());
+
+    // 1. Ingest via base64 JSON
+    let req_body_b64 = serde_json::json!({
+        "source_name": "base64-upload.json",
+        "evidence_base64": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, b"{\"event\":\"b64\"}\n")
+    });
+
+    let res1 = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/ingest")
+                .header("content-type", "application/json")
+                .body(Body::from(req_body_b64.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(res1.status(), StatusCode::OK);
+    let body_bytes = res1.into_body().collect().await.unwrap().to_bytes();
+    let body_json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(body_json["total_records"].as_u64().unwrap(), 1);
+    assert_eq!(body_json["stored_records"].as_u64().unwrap(), 1);
+
+    // 2. Ingest via text JSON
+    let req_body_txt = serde_json::json!({
+        "source_name": "text-upload.json",
+        "evidence_text": "{\"event\":\"txt\"}\n"
+    });
+
+    let res2 = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/ingest")
+                .header("content-type", "application/json")
+                .body(Body::from(req_body_txt.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(res2.status(), StatusCode::OK);
+
+    // 3. Verify they show up in /api/v1/events
+    let res3 = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/events")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(res3.status(), StatusCode::OK);
+    let list_bytes = res3.into_body().collect().await.unwrap().to_bytes();
+    let list_json: serde_json::Value = serde_json::from_slice(&list_bytes).unwrap();
+    let events = list_json["events"].as_array().unwrap();
+    assert_eq!(events.len(), 2);
+
+    // 4. Duplicate ingestion rejection test
+    let res4 = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/ingest")
+                .header("content-type", "application/json")
+                .body(Body::from(req_body_txt.to_string())) // duplicate
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(res4.status(), StatusCode::OK);
+    let dup_bytes = res4.into_body().collect().await.unwrap().to_bytes();
+    let dup_json: serde_json::Value = serde_json::from_slice(&dup_bytes).unwrap();
+    assert_eq!(dup_json["total_records"].as_u64().unwrap(), 1);
+    assert_eq!(dup_json["stored_records"].as_u64().unwrap(), 0); // 0 stored records since it's duplicate
+
+    // 5. Empty input rejection
+    let req_body_empty = serde_json::json!({
+        "source_name": "empty",
+        "evidence_text": ""
+    });
+
+    let res5 = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/ingest")
+                .header("content-type", "application/json")
+                .body(Body::from(req_body_empty.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(res5.status(), StatusCode::BAD_REQUEST);
 
     let _ = std::fs::remove_file(path);
 }

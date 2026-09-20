@@ -34,7 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("current working directory as ulpx-ingest, or set ULPX_STORE_PATH explicitly.");
     }
 
-    let app = create_router(Arc::new(store));
+    let app = create_router(Arc::new(store), store_path.clone());
 
     let listener = TcpListener::bind(&serve_addr)
         .await

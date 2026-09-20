@@ -1077,3 +1077,18 @@ a {
 
 /* Utilities */
 .hidden { display: none !important; }
+.alert {
+    padding: 10px 15px;
+    border-radius: 4px;
+    font-weight: 500;
+}
+.alert-success {
+    background: #e6f4ea;
+    color: #137333;
+    border: 1px solid #ceead6;
+}
+.alert-danger {
+    background: #fce8e6;
+    color: #c5221f;
+    border: 1px solid #fad2cf;
+}

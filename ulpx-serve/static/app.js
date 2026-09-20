@@ -742,3 +742,95 @@ function renderProvenanceExplorer(data, containerEl) {
         `;
     }
 }
+
+function switchIngestTab(tabId) {
+    document.getElementById('ingest-tab-paste').classList.add('hidden');
+    document.getElementById('ingest-tab-upload').classList.add('hidden');
+
+    document.querySelectorAll('#sec-ingest .tab-btn').forEach(btn => btn.classList.remove('active'));
+
+    document.getElementById('ingest-tab-' + tabId).classList.remove('hidden');
+    const activeBtn = Array.from(document.querySelectorAll('#sec-ingest .tab-btn')).find(b => b.getAttribute('onclick').includes(tabId));
+    if (activeBtn) activeBtn.classList.add('active');
+}
+
+async function submitIngestion() {
+    const sourceName = document.getElementById('ingest-source-name').value.trim();
+    if (!sourceName) {
+        showIngestAlert('Error: Source Name is required', 'error');
+        return;
+    }
+
+    const isUpload = !document.getElementById('ingest-tab-upload').classList.contains('hidden');
+    const payload = { source_name: sourceName };
+
+    if (isUpload) {
+        const fileInput = document.getElementById('ingest-file');
+        if (!fileInput.files.length) {
+            showIngestAlert('Error: Please select a file', 'error');
+            return;
+        }
+
+        try {
+            const file = fileInput.files[0];
+            const buffer = await file.arrayBuffer();
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            for (let i = 0; i < bytes.byteLength; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            payload.evidence_base64 = btoa(binary);
+        } catch (e) {
+            showIngestAlert('Error reading file: ' + e.message, 'error');
+            return;
+        }
+    } else {
+        const text = document.getElementById('ingest-raw-text').value;
+        if (!text) {
+            showIngestAlert('Error: Please paste some evidence', 'error');
+            return;
+        }
+        payload.evidence_text = text;
+    }
+
+    const btn = document.getElementById('btn-submit-ingest');
+    const spinner = document.getElementById('ingest-spinner');
+    btn.disabled = true;
+    spinner.classList.remove('hidden');
+    showIngestAlert('', 'hidden');
+
+    try {
+        const response = await fetch('/api/v1/ingest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            showIngestAlert(`Success! Found ${data.total_records} records, stored ${data.stored_records} new records.`, 'success');
+            if (typeof fetchEvents === 'function') {
+                fetchEvents();
+            }
+        } else {
+            const errText = await response.text();
+            showIngestAlert(errText, 'error');
+        }
+    } catch (e) {
+        showIngestAlert('Network error: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        spinner.classList.add('hidden');
+    }
+}
+
+function showIngestAlert(msg, type) {
+    const el = document.getElementById('ingest-alert');
+    if (type === 'hidden') {
+        el.classList.add('hidden');
+        return;
+    }
+    el.className = 'alert ' + (type === 'success' ? 'alert-success' : 'alert-danger');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+}
