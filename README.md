@@ -101,3 +101,4 @@ The `ulpx-bench` crate provides a deterministic macro-benchmark evaluated agains
 - [Architecture Document](ARCHITECTURE.md)
 - [REST API Reference](API.md)
 - [Detailed Benchmarks](ulpx-bench/README.md)
+- [Air-Gapped Deployment Guide](docs/PHASE_16_AIRGAP.md)

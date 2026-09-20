@@ -1,7 +1,8 @@
+use base64::{engine::general_purpose, Engine as _};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Output};
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -38,6 +39,16 @@ impl Drop for DockerCleanup {
     }
 }
 
+fn exec_in_ulpx(args: &[&str]) -> Output {
+    let mut cmd = get_docker_cmd();
+    cmd.arg("exec").arg("ulpx_airgap");
+    for arg in args {
+        cmd.arg(arg);
+    }
+    cmd.output()
+        .expect("Failed to execute command inside ulpx_airgap container")
+}
+
 #[tokio::test]
 async fn test_airgap_end_to_end_real_docker() {
     if !is_docker_available() {
@@ -45,12 +56,15 @@ async fn test_airgap_end_to_end_real_docker() {
         return;
     }
 
-    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let workspace_dir = std::path::Path::new(&manifest_dir).parent().unwrap();
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR")
+        .expect("[Requirement 1] CARGO_MANIFEST_DIR must be set by cargo test runner");
+    let workspace_dir = std::path::Path::new(&manifest_dir)
+        .parent()
+        .expect("[Requirement 1] Unable to find workspace root from CARGO_MANIFEST_DIR");
     let compose_path = workspace_dir.join("deploy").join("docker-compose.yml");
     assert!(
         compose_path.exists(),
-        "Compose file not found at {:?}",
+        "[Requirement 1] Compose file not found at {:?}",
         compose_path
     );
 
@@ -58,7 +72,7 @@ async fn test_airgap_end_to_end_real_docker() {
         compose_path: compose_path.clone(),
     };
 
-    // Teardown any left-over state first
+    // Teardown any leftover containers/volumes first
     let _ = get_compose_cmd()
         .arg("-f")
         .arg(&compose_path)
@@ -66,7 +80,7 @@ async fn test_airgap_end_to_end_real_docker() {
         .arg("-v")
         .output();
 
-    println!("Building and bringing up docker container (this may take a few minutes)...");
+    println!("Building and bringing up ULPX stack in air-gapped environment...");
     let status = get_compose_cmd()
         .arg("-f")
         .arg(&compose_path)
@@ -74,23 +88,28 @@ async fn test_airgap_end_to_end_real_docker() {
         .arg("-d")
         .arg("--build")
         .status()
-        .expect("Failed to execute docker compose up");
-    assert!(status.success(), "Docker compose up failed");
+        .expect("[Requirement 1] Failed to execute 'docker compose up'");
+    assert!(
+        status.success(),
+        "[Requirement 1] 'docker compose up --build -d' failed to start the ULPX deployment stack"
+    );
 
-    // VERIFY THE ACTUAL AIR-GAP NETWORK
+    // ─────────────────────────────────────────────────────────────────────────
+    // 1. VERIFY AIR-GAP NETWORK ARCHITECTURE
+    // ─────────────────────────────────────────────────────────────────────────
     let inspect_out = get_docker_cmd()
         .arg("inspect")
         .arg("ulpx_airgap")
         .arg("--format")
         .arg("{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}")
         .output()
-        .expect("Failed to inspect container");
+        .expect("[Requirement 7] Failed to inspect ulpx_airgap container networks");
     let network_name = String::from_utf8_lossy(&inspect_out.stdout)
         .trim()
         .to_string();
     assert!(
         !network_name.is_empty(),
-        "Container is not attached to any network"
+        "[Requirement 7] Container 'ulpx_airgap' is not attached to any network"
     );
 
     let net_inspect = get_docker_cmd()
@@ -100,137 +119,51 @@ async fn test_airgap_end_to_end_real_docker() {
         .arg("--format")
         .arg("{{.Internal}}")
         .output()
-        .expect("Failed to inspect network");
+        .expect("[Requirement 7] Failed to inspect network configuration");
     let is_internal = String::from_utf8_lossy(&net_inspect.stdout)
         .trim()
         .to_string();
     assert_eq!(
         is_internal, "true",
-        "Network {} is NOT strictly internal!",
+        "[Requirement 7] Network '{}' is NOT strictly internal! 'internal: true' must be enforced in deploy/docker-compose.yml.",
         network_name
     );
 
-    // VERIFY NO RUNTIME INTERNET DEPENDENCY
-    // We use rust:1.98 container because it contains `curl`. We assert that the exit code is network failure (e.g. 28 timeout or 6/7 failed to connect).
-    let ext_req = get_docker_cmd()
-        .arg("run")
-        .arg("--rm")
-        .arg("--network")
-        .arg(&network_name)
-        .arg("rust:1.98")
-        .arg("curl")
-        .arg("-s")
-        .arg("--connect-timeout")
-        .arg("2")
-        .arg("https://1.1.1.1")
-        .output()
-        .unwrap();
-
+    // ─────────────────────────────────────────────────────────────────────────
+    // 2. VERIFY OUTBOUND INTERNET IS TRULY BLOCKED (AIR-GAP ENFORCEMENT)
+    // ─────────────────────────────────────────────────────────────────────────
+    // Directly test the deployed ulpx_airgap container to ensure it cannot communicate externally.
+    let ext_req = exec_in_ulpx(&["curl", "-s", "--connect-timeout", "2", "https://1.1.1.1"]);
     let exit_code = ext_req.status.code().unwrap_or(-1);
-    // Curl exit codes: 28 is timeout, 7 is failed to connect, 6 is couldn't resolve host.
-    // An exit code of 127 would mean curl wasn't found (which would falsely pass isolation test).
+
+    // If exit code is 0, the container successfully reached the public internet — a catastrophic air-gap breach!
+    assert_ne!(
+        exit_code, 0,
+        "[Requirement 2 & 9] AIR-GAP VIOLATION: Container 'ulpx_airgap' successfully reached external internet (https://1.1.1.1)! Outbound network isolation failed."
+    );
+
+    // Curl exit codes: 28 = operation timeout, 7 = failed to connect, 6 = couldn't resolve host.
     assert!(
         exit_code == 28 || exit_code == 7 || exit_code == 6,
-        "Curl failed but with unexpected exit code {} (expected network failure 28, 7, or 6). Isolation test inconclusive.",
-        exit_code
+        "[Requirement 2] Expected network failure exit code (28 timeout, 7 connection refused, or 6 host resolution failure) when attempting internet access, but got code: {}. Stderr: {}",
+        exit_code,
+        String::from_utf8_lossy(&ext_req.stderr)
     );
 
-    // Wait for the server to be ready inside the network
+    // ─────────────────────────────────────────────────────────────────────────
+    // 3. VERIFY SERVER & UI AVAILABILITY WHILE AIR-GAPPED
+    // ─────────────────────────────────────────────────────────────────────────
     let mut retries = 120;
     while retries > 0 {
-        let check = get_docker_cmd()
-            .arg("run")
-            .arg("--rm")
-            .arg("--network")
-            .arg(&network_name)
-            .arg("rust:1.98")
-            .arg("curl")
-            .arg("-s")
-            .arg("-o")
-            .arg("/dev/null")
-            .arg("-w")
-            .arg("%{http_code}")
-            .arg("http://ulpx_airgap:3000/")
-            .output()
-            .unwrap();
-        if String::from_utf8_lossy(&check.stdout).trim() == "200" {
-            break;
-        }
-        sleep(Duration::from_millis(500)).await;
-        retries -= 1;
-    }
-    assert!(retries > 0, "Server in docker did not start in time");
-
-    // VERIFY UI
-    let ui_resp = get_docker_cmd()
-        .arg("run")
-        .arg("--rm")
-        .arg("--network")
-        .arg(&network_name)
-        .arg("rust:1.98")
-        .arg("curl")
-        .arg("-s")
-        .arg("http://ulpx_airgap:3000/")
-        .output()
-        .expect("Failed to fetch UI root");
-    assert!(ui_resp.status.success(), "UI root did not return HTTP 200");
-    let html = String::from_utf8_lossy(&ui_resp.stdout);
-    assert!(html.contains("<!DOCTYPE html>"), "UI did not return HTML");
-    assert!(
-        html.contains("events-list"),
-        "UI does not contain expected frontend elements"
-    );
-
-    // Ingestion
-    let test_log = env::temp_dir().join("airgap_test.log");
-    let raw_content =
-        "<34>Oct 11 22:14:15 mymachine su: 'su root' failed for lonvick on /dev/pts/8\n";
-    fs::write(&test_log, raw_content).unwrap();
-
-    let cp_status = get_docker_cmd()
-        .arg("cp")
-        .arg(&test_log)
-        .arg("ulpx_airgap:/tmp/airgap_test.log")
-        .status()
-        .expect("Failed to docker cp");
-    assert!(cp_status.success(), "Failed to copy test log to container");
-
-    let exec_status = get_docker_cmd()
-        .arg("exec")
-        .arg("ulpx_airgap")
-        .arg("sh")
-        .arg("-c")
-        .arg("ULPX_STORE_PATH=/data/.ulpx_store ulpx process /tmp/airgap_test.log")
-        .status()
-        .expect("Failed to docker exec ingestion");
-    assert!(exec_status.success(), "Docker exec ingestion failed");
-
-    // ULPX_STORE_PATH was modified by `ulpx process`, but `ulpx-serve` reads it on startup.
-    // We must restart the container so the server reloads the store.
-    let restart_status = get_docker_cmd()
-        .arg("restart")
-        .arg("ulpx_airgap")
-        .status()
-        .expect("Failed to restart container");
-    assert!(restart_status.success(), "Failed to restart container");
-
-    let mut retries = 120;
-    while retries > 0 {
-        let check = get_docker_cmd()
-            .arg("run")
-            .arg("--rm")
-            .arg("--network")
-            .arg(&network_name)
-            .arg("rust:1.98")
-            .arg("curl")
-            .arg("-s")
-            .arg("-o")
-            .arg("/dev/null")
-            .arg("-w")
-            .arg("%{http_code}")
-            .arg("http://ulpx_airgap:3000/api/v1/events")
-            .output()
-            .unwrap();
+        let check = exec_in_ulpx(&[
+            "curl",
+            "-s",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code}",
+            "http://127.0.0.1:3000/",
+        ]);
         if String::from_utf8_lossy(&check.stdout).trim() == "200" {
             break;
         }
@@ -239,133 +172,208 @@ async fn test_airgap_end_to_end_real_docker() {
     }
     assert!(
         retries > 0,
-        "Server in docker did not start in time after restart"
+        "[Requirement 4] ulpx-serve inside container did not bind and respond on http://127.0.0.1:3000/ within 60s"
     );
 
-    // Verify storage API
-    let ev_resp = get_docker_cmd()
-        .arg("run")
-        .arg("--rm")
-        .arg("--network")
-        .arg(&network_name)
-        .arg("rust:1.98")
-        .arg("curl")
-        .arg("-s")
-        .arg("http://ulpx_airgap:3000/api/v1/events")
-        .output()
-        .expect("Failed to fetch events");
-    assert!(ev_resp.status.success());
+    // Verify UI Root serves complete offline HTML without requiring external CDNs/fonts
+    let ui_resp = exec_in_ulpx(&["curl", "-s", "http://127.0.0.1:3000/"]);
+    assert!(
+        ui_resp.status.success(),
+        "[Requirement 4] UI root endpoint failed to return HTTP 200"
+    );
+    let html = String::from_utf8_lossy(&ui_resp.stdout);
+    assert!(
+        html.contains("<!DOCTYPE html>"),
+        "[Requirement 4] UI root did not return valid HTML markup"
+    );
+    assert!(
+        html.contains("events-list"),
+        "[Requirement 4] UI does not contain required frontend element '#events-list'"
+    );
+    assert!(
+        html.contains("tab-provenance"),
+        "[Requirement 4] UI does not contain Phase 15 Provenance Explorer element"
+    );
 
-    let json: serde_json::Value = serde_json::from_slice(&ev_resp.stdout).unwrap();
-    let events = json.get("events").unwrap().as_array().unwrap();
-    assert_eq!(events.len(), 1, "Expected exactly 1 event ingested");
-    let event_id = events[0].get("event_id").unwrap().as_str().unwrap();
+    // ─────────────────────────────────────────────────────────────────────────
+    // 4. VERIFY INGESTION UNDER AIR-GAPPED OPERATION
+    // ─────────────────────────────────────────────────────────────────────────
+    let test_log = env::temp_dir().join("airgap_test.log");
+    let raw_content =
+        "<34>Oct 11 22:14:15 mymachine su: 'su root' failed for lonvick on /dev/pts/8\n";
+    fs::write(&test_log, raw_content)
+        .expect("[Requirement 4] Failed to write temporary test log on host");
 
-    // VERIFY STORAGE SEPARATELY (Fetch raw evidence bytes)
-    let ev_raw_resp = get_docker_cmd()
-        .arg("run")
-        .arg("--rm")
-        .arg("--network")
-        .arg(&network_name)
-        .arg("rust:1.98")
-        .arg("curl")
-        .arg("-s")
-        .arg(format!(
-            "http://ulpx_airgap:3000/api/v1/evidence/{}",
-            event_id
-        ))
-        .output()
-        .expect("Failed to fetch raw evidence");
-    assert!(ev_raw_resp.status.success());
+    let cp_status = get_docker_cmd()
+        .arg("cp")
+        .arg(&test_log)
+        .arg("ulpx_airgap:/tmp/airgap_test.log")
+        .status()
+        .expect("[Requirement 4] Failed to docker cp test log into container");
+    assert!(
+        cp_status.success(),
+        "[Requirement 4] Failed to copy test log file into 'ulpx_airgap' container"
+    );
 
-    let raw_json: serde_json::Value = serde_json::from_slice(&ev_raw_resp.stdout).unwrap();
-    use base64::{engine::general_purpose, Engine as _};
-    let b64_payload = raw_json.get("payload_base64").unwrap().as_str().unwrap();
-    let decoded = general_purpose::STANDARD.decode(b64_payload).unwrap();
+    let exec_status = exec_in_ulpx(&[
+        "sh",
+        "-c",
+        "ULPX_STORE_PATH=/data/.ulpx_store ulpx process /tmp/airgap_test.log",
+    ]);
+    assert!(
+        exec_status.status.success(),
+        "[Requirement 4] Ingestion command 'ulpx process' failed inside container: {}",
+        String::from_utf8_lossy(&exec_status.stderr)
+    );
 
-    // Directly compare decoded bytes to the original bytes!
+    // Restart container so ulpx-serve reloads persistent store
+    let restart_status = get_docker_cmd()
+        .arg("restart")
+        .arg("ulpx_airgap")
+        .status()
+        .expect("[Requirement 4] Failed to restart container after ingestion");
+    assert!(
+        restart_status.success(),
+        "[Requirement 4] Failed to restart container"
+    );
+
+    let mut retries = 120;
+    while retries > 0 {
+        let check = exec_in_ulpx(&[
+            "curl",
+            "-s",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code}",
+            "http://127.0.0.1:3000/api/v1/events",
+        ]);
+        if String::from_utf8_lossy(&check.stdout).trim() == "200" {
+            break;
+        }
+        sleep(Duration::from_millis(500)).await;
+        retries -= 1;
+    }
+    assert!(
+        retries > 0,
+        "[Requirement 4] Server did not become ready after container restart"
+    );
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 5. VERIFY API & PERSISTENT STORAGE
+    // ─────────────────────────────────────────────────────────────────────────
+    let ev_resp = exec_in_ulpx(&["curl", "-s", "http://127.0.0.1:3000/api/v1/events"]);
+    assert!(
+        ev_resp.status.success(),
+        "[Requirement 4] Failed to query /api/v1/events"
+    );
+
+    let json: serde_json::Value = serde_json::from_slice(&ev_resp.stdout)
+        .expect("[Requirement 4] Invalid JSON response from /api/v1/events");
+    let events = json
+        .get("events")
+        .expect("[Requirement 4] 'events' field missing from /api/v1/events response")
+        .as_array()
+        .expect("[Requirement 4] 'events' should be an array");
+    assert_eq!(
+        events.len(),
+        1,
+        "[Requirement 4] Expected exactly 1 event ingested into persistent store"
+    );
+    let event_id = events[0]
+        .get("event_id")
+        .expect("[Requirement 4] 'event_id' missing from event summary")
+        .as_str()
+        .expect("[Requirement 4] 'event_id' should be a string");
+
+    // Retrieve raw evidence and verify byte-for-byte exact preservation
+    let ev_raw_resp = exec_in_ulpx(&[
+        "curl",
+        "-s",
+        &format!("http://127.0.0.1:3000/api/v1/evidence/{}", event_id),
+    ]);
+    assert!(
+    ev_raw_resp.status.success(),
+    "[Requirement 4] Failed to fetch raw evidence from /api/v1/evidence/{}",
+    event_id
+    );
+
+    let raw_json: serde_json::Value = serde_json::from_slice(&ev_raw_resp.stdout)
+        .expect("[Requirement 4] Invalid JSON response from /api/v1/evidence");
+    let b64_payload = raw_json
+        .get("payload_base64")
+        .expect("[Requirement 4] 'payload_base64' missing from evidence response")
+        .as_str()
+        .expect("[Requirement 4] 'payload_base64' should be a string");
+    let decoded = general_purpose::STANDARD
+        .decode(b64_payload)
+        .expect("[Requirement 4] Failed to decode base64 evidence payload");
+
     assert_eq!(
         decoded,
         raw_content.as_bytes(),
-        "Stored raw bytes do not match original evidence"
+        "[Requirement 4 & Rule 1] Stored raw bytes do NOT match original evidence byte-for-byte!"
     );
 
-    // RESTART CONTAINER AND VERIFY STORAGE PERSISTENCE AGAIN
+    // ─────────────────────────────────────────────────────────────────────────
+    // 6. VERIFY DURABLE VOLUME PERSISTENCE ACROSS SECOND RESTART
+    // ─────────────────────────────────────────────────────────────────────────
     let restart_status_2 = get_docker_cmd()
         .arg("restart")
         .arg("ulpx_airgap")
         .status()
-        .expect("Failed to restart container second time");
+        .expect("[Requirement 4] Failed to restart container a second time");
     assert!(
         restart_status_2.success(),
-        "Failed to restart container second time"
+        "[Requirement 4] Failed second container restart"
     );
 
-    // Wait for server to come back up
     let mut retries_2 = 120;
     while retries_2 > 0 {
-        let check = get_docker_cmd()
-            .arg("run")
-            .arg("--rm")
-            .arg("--network")
-            .arg(&network_name)
-            .arg("rust:1.98")
-            .arg("curl")
-            .arg("-s")
-            .arg("-o")
-            .arg("/dev/null")
-            .arg("-w")
-            .arg("%{http_code}")
-            .arg("http://ulpx_airgap:3000/")
-            .output()
-            .expect("Failed to run health check curl");
-        if check.status.success() {
-            let code = String::from_utf8_lossy(&check.stdout);
-            if code == "200" {
-                break;
-            }
+        let check = exec_in_ulpx(&[
+            "curl",
+            "-s",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code}",
+            "http://127.0.0.1:3000/api/v1/events",
+        ]);
+        if String::from_utf8_lossy(&check.stdout).trim() == "200" {
+            break;
         }
         sleep(Duration::from_millis(500)).await;
         retries_2 -= 1;
     }
     assert!(
         retries_2 > 0,
-        "Server did not restart successfully the second time"
+        "[Requirement 4] Server did not become ready after second container restart"
     );
 
-    let ev_raw_resp_2 = get_docker_cmd()
-        .arg("run")
-        .arg("--rm")
-        .arg("--network")
-        .arg(&network_name)
-        .arg("rust:1.98")
-        .arg("curl")
-        .arg("-s")
-        .arg(format!(
-            "http://ulpx_airgap:3000/api/v1/evidence/{}",
-            event_id
-        ))
-        .output()
-        .expect("Failed to fetch raw evidence after restart");
+    let ev_raw_resp_2 = exec_in_ulpx(&[
+        "curl",
+        "-s",
+        &format!("http://127.0.0.1:3000/api/v1/evidence/{}", event_id),
+    ]);
     assert!(
         ev_raw_resp_2.status.success(),
-        "Failed to fetch evidence after restart"
+        "[Requirement 4] Failed to fetch evidence after second restart"
     );
 
-    let raw_json_2: serde_json::Value = serde_json::from_slice(&ev_raw_resp_2.stdout).unwrap();
+    let raw_json_2: serde_json::Value = serde_json::from_slice(&ev_raw_resp_2.stdout)
+        .expect("[Requirement 4] Invalid JSON response after second restart");
     let b64_payload_2 = raw_json_2.get("payload_base64").unwrap().as_str().unwrap();
     let decoded_2 = general_purpose::STANDARD.decode(b64_payload_2).unwrap();
 
-    // Directly compare decoded bytes again
     assert_eq!(
         decoded_2,
         raw_content.as_bytes(),
-        "Stored raw bytes do not match original evidence AFTER RESTART (Persistence failed)"
+        "[Requirement 4 & Rule 1] Evidence lost or corrupted after second container restart! Persistent volume durability failed."
     );
 
-    // VERIFY INFERENCE AND PARSING
-    // PATH A: KNOWN PARSER PATH
-    // We send a replay with "syslog" in the registry. It should parse successfully.
+    // ─────────────────────────────────────────────────────────────────────────
+    // 7. VERIFY OFFLINE PARSING (KNOWN PARSER PATH)
+    // ─────────────────────────────────────────────────────────────────────────
     let known_replay_req = serde_json::json!({
         "event_id": event_id,
         "pipeline_config": {
@@ -379,73 +387,82 @@ async fn test_airgap_end_to_end_real_docker() {
     });
 
     let known_payload_file = env::temp_dir().join("known_payload.json");
-    fs::write(&known_payload_file, known_replay_req.to_string()).unwrap();
+    fs::write(&known_payload_file, known_replay_req.to_string())
+        .expect("[Requirement 4] Failed to write known_payload.json");
 
-    let known_replay_resp = get_docker_cmd()
-        .arg("run")
-        .arg("--rm")
-        .arg("--network")
-        .arg(&network_name)
-        .arg("-v")
-        .arg(format!("{}:/payload.json", known_payload_file.display()))
-        .arg("rust:1.98")
-        .arg("curl")
-        .arg("-s")
-        .arg("-X")
-        .arg("POST")
-        .arg("-H")
-        .arg("Content-Type: application/json")
-        .arg("-d")
-        .arg("@/payload.json")
-        .arg("http://ulpx_airgap:3000/api/v1/replay")
-        .output()
-        .expect("Failed to replay event (Known path)");
+    let cp_known = get_docker_cmd()
+        .arg("cp")
+        .arg(&known_payload_file)
+        .arg("ulpx_airgap:/tmp/known_payload.json")
+        .status()
+        .expect("[Requirement 4] Failed to cp known_payload.json to container");
+    assert!(
+        cp_known.success(),
+        "[Requirement 4] Failed to copy known_payload.json to container"
+    );
+
+    let known_replay_resp = exec_in_ulpx(&[
+        "curl",
+        "-s",
+        "-X",
+        "POST",
+        "-H",
+        "Content-Type: application/json",
+        "-d",
+        "@/tmp/known_payload.json",
+        "http://127.0.0.1:3000/api/v1/replay",
+    ]);
 
     assert!(
         known_replay_resp.status.success(),
-        "Known Replay request failed"
+        "[Requirement 4 & 5] Offline replay POST failed for known syslog parser"
     );
-    let known_replay_json: serde_json::Value =
-        match serde_json::from_slice(&known_replay_resp.stdout) {
-            Ok(v) => v,
-            Err(e) => {
-                panic!(
-                    "Failed to parse JSON from known replay. Error: {}. Stdout: {}",
-                    e,
-                    String::from_utf8_lossy(&known_replay_resp.stdout)
-                );
-            }
-        };
+    let known_replay_json: serde_json::Value = serde_json::from_slice(&known_replay_resp.stdout)
+        .unwrap_or_else(|e| {
+            panic!(
+                "[Requirement 4] Failed to parse JSON from known replay: {}. Raw stdout: {}",
+                e,
+                String::from_utf8_lossy(&known_replay_resp.stdout)
+            );
+        });
 
-    let known_frames = known_replay_json.get("frames").unwrap().as_array().unwrap();
+    let known_frames = known_replay_json
+        .get("frames")
+        .expect("[Requirement 4] 'frames' missing from known replay response")
+        .as_array()
+        .expect("[Requirement 4] 'frames' should be an array");
     assert!(
         !known_frames.is_empty(),
-        "No frames returned in known replay"
+        "[Requirement 4] No frames returned in known replay"
     );
     let known_frame = &known_frames[0];
 
-    // VERIFY PARSING WAS SUCCESSFUL
-    let known_parser_outcome = known_frame.get("parser_outcome").unwrap().as_str().unwrap();
+    let known_parser_outcome = known_frame
+        .get("parser_outcome")
+        .expect("[Requirement 4] 'parser_outcome' missing")
+        .as_str()
+        .unwrap();
     assert_eq!(
         known_parser_outcome, "Success",
-        "Parser should have succeeded for syslog, got {}",
+        "[Requirement 4] Offline parser failed for known syslog event, outcome: {}",
         known_parser_outcome
     );
 
     let ir_event = known_frame.get("ir_event");
     assert!(
         ir_event.is_some() && !ir_event.unwrap().is_null(),
-        "IR Event missing on successful parse"
+        "[Requirement 4] ULPX-IR event missing on successful offline parse"
     );
     let canonical = known_frame.get("canonical_event");
     assert!(
         canonical.is_some() && !canonical.unwrap().is_null(),
-        "Canonical Event missing on successful parse"
+        "[Requirement 4] Canonical OCSF event missing on successful offline parse"
     );
 
-    // PATH B: UNKNOWN PARSER PATH (INFERENCE)
-    // We intentionally leave parser_registry EMPTY so that parsers will abstain,
-    // forcing the semantic inference engine to trigger and recognize the Syslog format.
+    // ─────────────────────────────────────────────────────────────────────────
+    // 8. VERIFY OFFLINE UNKNOWN-FORMAT SEMANTIC INFERENCE
+    // ─────────────────────────────────────────────────────────────────────────
+    // Intentionally pass an EMPTY parser registry to force abstention and engagement of inference
     let replay_req = serde_json::json!({
         "event_id": event_id,
         "pipeline_config": {
@@ -458,73 +475,95 @@ async fn test_airgap_end_to_end_real_docker() {
         }
     });
     let payload_file = env::temp_dir().join("payload.json");
-    fs::write(&payload_file, replay_req.to_string()).unwrap();
+    fs::write(&payload_file, replay_req.to_string())
+        .expect("[Requirement 4] Failed to write payload.json");
 
-    let replay_resp = get_docker_cmd()
-        .arg("run")
-        .arg("--rm")
-        .arg("--network")
-        .arg(&network_name)
-        .arg("-v")
-        .arg(format!("{}:/payload.json", payload_file.display()))
-        .arg("rust:1.98")
-        .arg("curl")
-        .arg("-s")
-        .arg("-X")
-        .arg("POST")
-        .arg("-H")
-        .arg("Content-Type: application/json")
-        .arg("-d")
-        .arg("@/payload.json")
-        .arg("http://ulpx_airgap:3000/api/v1/replay")
-        .output()
-        .expect("Failed to replay event");
+    let cp_infer = get_docker_cmd()
+        .arg("cp")
+        .arg(&payload_file)
+        .arg("ulpx_airgap:/tmp/payload.json")
+        .status()
+        .expect("[Requirement 4] Failed to cp payload.json to container");
+    assert!(
+        cp_infer.success(),
+        "[Requirement 4] Failed to copy payload.json to container"
+    );
 
-    assert!(replay_resp.status.success(), "Replay request failed");
-    let replay_json: serde_json::Value = match serde_json::from_slice(&replay_resp.stdout) {
-        Ok(v) => v,
-        Err(e) => {
+    let replay_resp = exec_in_ulpx(&[
+        "curl",
+        "-s",
+        "-X",
+        "POST",
+        "-H",
+        "Content-Type: application/json",
+        "-d",
+        "@/tmp/payload.json",
+        "http://127.0.0.1:3000/api/v1/replay",
+    ]);
+
+    assert!(
+        replay_resp.status.success(),
+        "[Requirement 4 & 5] Offline inference replay POST failed"
+    );
+    let replay_json: serde_json::Value = serde_json::from_slice(&replay_resp.stdout)
+        .unwrap_or_else(|e| {
             panic!(
-                "Failed to parse JSON from inference replay. Error: {}. Stdout: {}",
+                "[Requirement 4] Failed to parse JSON from inference replay: {}. Raw stdout: {}",
                 e,
                 String::from_utf8_lossy(&replay_resp.stdout)
             );
-        }
-    };
+        });
 
-    let frames = replay_json.get("frames").unwrap().as_array().unwrap();
-    assert!(!frames.is_empty(), "No frames returned in replay");
+    let frames = replay_json
+        .get("frames")
+        .expect("[Requirement 4] 'frames' missing from inference replay")
+        .as_array()
+        .unwrap();
+    assert!(
+        !frames.is_empty(),
+        "[Requirement 4] No frames returned in inference replay"
+    );
     let frame = &frames[0];
 
-    // VERIFY PARSING SEPARATELY
-    let parser_outcome = frame.get("parser_outcome").unwrap().as_str().unwrap();
+    let parser_outcome = frame
+        .get("parser_outcome")
+        .expect("[Requirement 4] 'parser_outcome' missing")
+        .as_str()
+        .unwrap();
     assert!(
         parser_outcome == "Failed" || parser_outcome == "Abstained",
-        "Parsers should have failed/abstained due to empty registry, but got {}",
+        "[Requirement 4] Parsers should have failed/abstained due to empty registry, but got {}",
         parser_outcome
     );
 
-    // VERIFY INFERENCE
     let inference = frame.get("inference_decision");
     assert!(
         inference.is_some() && !inference.unwrap().is_null(),
-        "Inference decision missing"
+        "[Requirement 4 & 5] Inference decision missing from frame"
     );
     let inf_obj = inference.unwrap().as_object().unwrap();
     assert_eq!(
-        inf_obj.get("decision").unwrap().as_str().unwrap(),
+        inf_obj
+            .get("decision")
+            .expect("[Requirement 4] 'decision' field missing")
+            .as_str()
+            .unwrap(),
         "Recognized",
-        "Inference should have recognized the Syslog format"
+        "[Requirement 4 & 5] Structural inference engine should have recognized the Syslog format offline"
     );
     let candidate = inf_obj
         .get("recognized_candidate")
-        .unwrap()
+        .expect("[Requirement 4] 'recognized_candidate' missing")
         .as_object()
+        .expect("[Requirement 4] 'recognized_candidate' should be an object");
+    let format_name = candidate
+        .get("format_name")
+        .expect("[Requirement 4] 'format_name' missing")
+        .as_str()
         .unwrap();
-    let format_name = candidate.get("format_name").unwrap().as_str().unwrap();
     assert!(
         format_name.contains("Syslog"),
-        "Inference did not recognize Syslog: {}",
+        "[Requirement 4 & 5] Offline inference candidate did not recognize Syslog: {}",
         format_name
     );
 

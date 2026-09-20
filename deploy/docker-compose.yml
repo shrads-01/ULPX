@@ -40,8 +40,8 @@ networks:
   airgap_net:
     name: ulpx_airgap_net
     driver: bridge
-    # internal: true removed to allow pulling the image if not present, but for true airgap we'd load it from tar
-    # internal: true 
+    # internal: true enforces strict kernel-level network isolation (no external gateway/NAT).
+    internal: true
 
 volumes:
   ulpx_data:
