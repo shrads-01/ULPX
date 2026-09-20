@@ -1,7 +1,7 @@
 use std::env;
 use std::sync::Arc;
 use tokio::net::TcpListener;
-use ulpx_core::storage::LocalEvidenceStore;
+use ulpx_core::storage::{LocalEvidenceStore, EvidenceStore};
 use ulpx_serve::create_router;
 
 #[tokio::main]
@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let store = LocalEvidenceStore::new(&store_path)
         .map_err(|e| format!("Failed to open evidence store at '{}': {}", store_path, e))?;
 
-    let event_count = store.ordered_metadata.len();
+    let event_count = store.list_events(0, usize::MAX).len();
     println!("Loaded {} events from store.", event_count);
 
     if event_count == 0 {

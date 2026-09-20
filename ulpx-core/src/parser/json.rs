@@ -68,7 +68,7 @@ impl Parser for JsonParser {
         let full_text = std::str::from_utf8(record.as_bytes())
             .map_err(|e| ParserError::Malformed(format!("invalid UTF-8: {e}")))?;
 
-        let text = full_text.trim();
+        let text = full_text.strip_prefix('\u{FEFF}').unwrap_or(full_text).trim();
 
         if !text.starts_with('{') || !text.ends_with('}') {
             return Err(ParserError::Unsupported);

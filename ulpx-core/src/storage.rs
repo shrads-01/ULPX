@@ -11,7 +11,7 @@ pub enum StoreError {
     NotFound,
     /// The EventId already exists in the store; insertion is rejected.
     DuplicateId,
-    /// Generic internal error (e.g., outÃ¢â‚¬â€˜ofÃ¢â‚¬â€˜memory).
+    /// Generic internal error (e.g., out-of-memory).
     Internal(String),
 }
 
@@ -27,7 +27,7 @@ impl Display for StoreError {
 
 impl std::error::Error for StoreError {}
 
-/// Trait defining the lossÃ¢â‚¬â€˜less evidenceÃ¢â‚¬â€˜storage contract.
+/// Trait defining the loss-less evidence-storage contract.
 pub trait EvidenceStore {
     /// Deterministically enumerate stored events.
     fn list_events(&self, offset: usize, limit: usize) -> Vec<EventMetadata>;
@@ -37,13 +37,13 @@ pub trait EvidenceStore {
     fn store(&mut self, event: RawEvent) -> Result<(), StoreError>;
 
     /// Retrieve an event by its `EventId`. The returned `RawEvent` must be
-    /// identical (byteÃ¢â‚¬â€˜forÃ¢â‚¬â€˜byte) to the one that was stored.
+    /// identical (byte-for-byte) to the one that was stored.
     fn retrieve(&self, id: &EventId) -> Result<RawEvent, StoreError>;
 }
 
 use crate::integrity::{compute_hash, IntegrityMetadata};
 
-/// Simple inÃ¢â‚¬â€˜memory implementation used for the PhaseÃ¢â‚¬Â¯2 prototype.
+/// Simple in-memory implementation used for the Phase 2 prototype.
 #[derive(Default)]
 pub struct InMemoryStore {
     map: HashMap<EventId, RawEvent>,
@@ -52,7 +52,7 @@ pub struct InMemoryStore {
 }
 
 impl InMemoryStore {
-    /// Create a new empty inÃ¢â‚¬â€˜memory store.
+    /// Create a new empty in-memory store.
     pub fn new() -> Self {
         Self {
             map: HashMap::new(),
@@ -115,41 +115,12 @@ use std::path::Path;
 use std::sync::Mutex;
 
 /// Persistent local evidence store implementation.
-///
-/// This store operates entirely offline, using an append-only persistence model
-/// to ensure that successfully persisted original raw evidence is never modified or
-/// overwritten. It is designed for single-process environments and uses interior
-/// mutability (Mutex) for thread-safe access within the process.
-///
-/// # On-Disk Record Structure
-/// Each appended record follows a deterministic binary structure:
-/// [Magic (4 bytes)][Total Length (4 bytes)][EventId Len][EventId]...
-/// ...[Ingestion Timestamp][Source Len][Source][Integrity Metadata][Raw Length][Raw Bytes]
-///
-/// # Startup Recovery Behavior
-/// During initialization, the store sequentially scans the file, validating each
-/// record's structure. If a truncated or corrupt record is encountered at the tail
-/// (e.g., due to an interrupted write or system crash), the scanner safely halts,
-/// truncates the file back to the last known-good boundary, and resumes operation
-/// cleanly. Malformed trailing data cannot become an indexed event.
-/// This recovery policy solely concerns the uncommitted/corrupt tail of the file.
-///
-/// # Integrity and Validation
-/// Cryptographic evidence-chain verification is distinct from structural file parsing.
-/// Cryptographic checks apply to the logical Event chain via erify_chain.
-/// The store intentionally has no per-record CRC on the structural framing;
-/// the store relies on length bounds checking for safety, falling back to
-/// truncation if a record is structurally malformed or cut off.
-///
-/// # Limitations
-/// - The log file grows indefinitely (unbounded log growth, no compaction or rotation is implemented).
-/// - The entire index is held in an in-memory HashMap, requiring $O(N)$ startup time
-///   and memory proportional to the number of stored events.
 pub struct LocalEvidenceStore {
-    pub ordered_metadata: Vec<EventMetadata>,
+    ordered_metadata: Mutex<Vec<EventMetadata>>,
     file: Mutex<File>,
-    index: HashMap<EventId, u64>,
-    last_event_id: Option<EventId>,
+    index: Mutex<HashMap<EventId, u64>>,
+    last_event_id: Mutex<Option<EventId>>,
+    parsed_bytes: Mutex<u64>,
 }
 
 impl LocalEvidenceStore {
@@ -208,10 +179,68 @@ impl LocalEvidenceStore {
 
         Ok(Self {
             file: Mutex::new(file),
-            index,
-            ordered_metadata,
-            last_event_id,
+            index: Mutex::new(index),
+            ordered_metadata: Mutex::new(ordered_metadata),
+            last_event_id: Mutex::new(last_event_id),
+            parsed_bytes: Mutex::new(safe_end),
         })
+    }
+
+    fn sync_from_disk(&self) {
+        let mut file = self.file.lock().unwrap();
+        let mut parsed_bytes = self.parsed_bytes.lock().unwrap();
+
+        let file_len = match file.metadata() {
+            Ok(md) => md.len(),
+            Err(_) => return,
+        };
+
+        if file_len == *parsed_bytes {
+            return;
+        }
+
+        let mut index = self.index.lock().unwrap();
+        let mut ordered_metadata = self.ordered_metadata.lock().unwrap();
+        let mut last_event_id = self.last_event_id.lock().unwrap();
+
+        let _ = file.seek(SeekFrom::Start(*parsed_bytes));
+
+        loop {
+            let offset = match file.stream_position() {
+                Ok(o) => o,
+                Err(_) => break,
+            };
+            if offset >= file_len {
+                break;
+            }
+
+            let mut header = [0u8; 8];
+            if file.read_exact(&mut header).is_err() {
+                break;
+            }
+            if &header[0..4] != Self::MAGIC {
+                break; // Corrupt
+            }
+
+            let len = u32::from_be_bytes([header[4], header[5], header[6], header[7]]) as u64;
+            if offset + 8 + len > file_len {
+                break;
+            }
+
+            let mut payload = vec![0u8; len as usize];
+            if file.read_exact(&mut payload).is_err() {
+                break;
+            }
+
+            if let Some(event) = Self::deserialize_event(&payload) {
+                index.insert(event.metadata.event_id.clone(), offset);
+                ordered_metadata.push(event.metadata.clone());
+                *last_event_id = Some(event.metadata.event_id);
+                *parsed_bytes = offset + 8 + len;
+            } else {
+                break;
+            }
+        }
     }
 
     fn serialize_event(event: &RawEvent) -> Vec<u8> {
@@ -345,7 +374,9 @@ impl LocalEvidenceStore {
 
 impl EvidenceStore for LocalEvidenceStore {
     fn list_events(&self, offset: usize, limit: usize) -> Vec<EventMetadata> {
-        self.ordered_metadata
+        self.sync_from_disk();
+        let ordered_metadata = self.ordered_metadata.lock().unwrap();
+        ordered_metadata
             .iter()
             .skip(offset)
             .take(limit)
@@ -354,19 +385,27 @@ impl EvidenceStore for LocalEvidenceStore {
     }
 
     fn store(&mut self, mut event: RawEvent) -> Result<(), StoreError> {
-        if self.index.contains_key(&event.metadata.event_id) {
+        self.sync_from_disk(); // ensure we are up to date
+
+        let mut index = self.index.lock().unwrap();
+        let mut ordered_metadata = self.ordered_metadata.lock().unwrap();
+        let mut last_event_id = self.last_event_id.lock().unwrap();
+
+        if index.contains_key(&event.metadata.event_id) {
             return Err(StoreError::DuplicateId);
         }
 
         let hash = compute_hash(event.as_bytes());
-        let integrity = IntegrityMetadata::new(hash, self.last_event_id.clone());
+        let integrity = IntegrityMetadata::new(hash, last_event_id.clone());
         event.metadata.integrity = Some(integrity);
 
         let mut file = self
             .file
             .lock()
             .map_err(|_| StoreError::Internal("Lock poisoned".into()))?;
-        let offset = file
+        let mut parsed_bytes = self.parsed_bytes.lock().unwrap();
+
+        let write_offset = file
             .seek(SeekFrom::End(0))
             .map_err(|e| StoreError::Internal(e.to_string()))?;
 
@@ -381,15 +420,19 @@ impl EvidenceStore for LocalEvidenceStore {
         file.sync_data()
             .map_err(|e| StoreError::Internal(e.to_string()))?;
 
-        self.index.insert(event.metadata.event_id.clone(), offset);
-        self.ordered_metadata.push(event.metadata.clone());
-        self.last_event_id = Some(event.metadata.event_id.clone());
+        index.insert(event.metadata.event_id.clone(), write_offset);
+        ordered_metadata.push(event.metadata.clone());
+        *last_event_id = Some(event.metadata.event_id.clone());
+        *parsed_bytes = write_offset + record.len() as u64;
 
         Ok(())
     }
 
     fn retrieve(&self, id: &EventId) -> Result<RawEvent, StoreError> {
-        let offset = self.index.get(id).ok_or(StoreError::NotFound)?;
+        self.sync_from_disk();
+
+        let index = self.index.lock().unwrap();
+        let offset = index.get(id).ok_or(StoreError::NotFound)?;
         let mut file = self
             .file
             .lock()

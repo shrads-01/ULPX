@@ -28,7 +28,7 @@ use crate::model::{Evidence, FormatCandidate, InferenceConfidence};
 /// * Input is valid UTF-8
 /// * Presence of at least one `"key": value` pattern (`:` inside the object)
 pub fn detect_json(bytes: &[u8]) -> Option<FormatCandidate> {
-    let trimmed = bytes.trim_ascii();
+    let trimmed = if bytes.starts_with(b"\xEF\xBB\xBF") { &bytes[3..] } else { bytes }.trim_ascii();
     if trimmed.is_empty() {
         return None;
     }
@@ -123,7 +123,7 @@ pub fn detect_json(bytes: &[u8]) -> Option<FormatCandidate> {
 /// * Followed by a single decimal digit and `|`
 /// * Contains at least 6 pipe separators (the 7 mandatory header fields)
 pub fn detect_cef(bytes: &[u8]) -> Option<FormatCandidate> {
-    let trimmed = bytes.trim_ascii();
+    let trimmed = if bytes.starts_with(b"\xEF\xBB\xBF") { &bytes[3..] } else { bytes }.trim_ascii();
     if trimmed.is_empty() {
         return None;
     }
@@ -196,7 +196,7 @@ pub fn detect_cef(bytes: &[u8]) -> Option<FormatCandidate> {
 /// * Starts with `<` followed by 1-3 decimal digits and `>`
 /// * After the priority, either a timestamp-looking string or a hostname
 pub fn detect_syslog(bytes: &[u8]) -> Option<FormatCandidate> {
-    let trimmed = bytes.trim_ascii();
+    let trimmed = if bytes.starts_with(b"\xEF\xBB\xBF") { &bytes[3..] } else { bytes }.trim_ascii();
     if trimmed.is_empty() {
         return None;
     }

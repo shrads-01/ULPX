@@ -5,124 +5,446 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ULPX Analyst UI</title>
     <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
-<body>
-    <div class="layout">
-        <nav class="sidebar">
-            <div class="sidebar-header">
-                <h2>ULPX</h2>
-                <div class="subtitle">Universal Lossless Security Telemetry</div>
-            </div>
-            
-            <div class="events-panel">
-                <div class="panel-header">
-                    <h3>Events</h3>
-                    <button id="refresh-events-btn" title="Refresh">↻</button>
-                </div>
-                <div id="events-list" class="events-list">
-                    <!-- Events will be populated here -->
-                </div>
-                <div class="pagination">
-                    <button id="prev-page-btn" disabled>&lt;</button>
-                    <span id="page-info">Page 1</span>
-                    <button id="next-page-btn" disabled>&gt;</button>
+<body class="dark-theme">
+    <div class="dashboard-layout">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <i class="fa-solid fa-shield-halved brand-icon"></i>
+                <div class="brand-text">
+                    <h1>ULPX</h1>
+                    <span class="subtitle">Analyst Workspace</span>
                 </div>
             </div>
-        </nav>
 
+            <nav class="sidebar-nav">
+                <div class="nav-section">
+                    <div class="nav-section-title">MAIN</div>
+                    <a href="#" class="nav-link active" data-target="dashboard">
+                        <i class="fa-solid fa-chart-line"></i> Dashboard
+                    </a>
+                    <a href="#" class="nav-link" data-target="ingest">
+                        <i class="fa-solid fa-upload"></i> Ingest Evidence
+                    </a>
+                    <a href="#" class="nav-link" data-target="events">
+                        <i class="fa-solid fa-list"></i> Events Stream
+                    </a>
+                    <a href="#" class="nav-link" data-target="about">
+                        <i class="fa-solid fa-circle-info"></i> System / About
+                    </a>
+                </div>
+
+                <div class="nav-section" id="analyst-workspace-section">
+                    <div class="nav-section-title">INVESTIGATION</div>
+                    <div id="no-event-selected-msg" class="nav-disabled-msg">
+                        <i class="fa-solid fa-lock"></i> Select an event to unlock
+                    </div>
+                    <a href="#" class="nav-link disabled" data-target="analysis" id="nav-analysis">
+                        <i class="fa-solid fa-magnifying-glass-chart"></i> Analysis
+                    </a>
+                    <a href="#" class="nav-link disabled" data-target="provenance" id="nav-provenance">
+                        <i class="fa-solid fa-diagram-project"></i> Provenance
+                    </a>
+                    <a href="#" class="nav-link disabled" data-target="unknown" id="nav-unknown">
+                        <i class="fa-solid fa-triangle-exclamation"></i> Unknown Formats
+                    </a>
+                    <a href="#" class="nav-link disabled" data-target="replay" id="nav-replay">
+                        <i class="fa-solid fa-rotate-right"></i> Reprocessing
+                    </a>
+                </div>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="status-indicator">
+                    <div class="status-dot online"></div>
+                    <span>API Connected</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
         <main class="main-content">
-            <div id="empty-state" class="empty-state">
-                Select an event to view its details.
-            </div>
-
-            <div id="investigation-view" class="investigation-view hidden">
-                <header class="view-header">
-                    <h2 id="current-event-id">Event ID</h2>
-                    <div class="view-tabs">
-                        <button class="tab-btn active" data-tab="evidence">Evidence</button>
-                        <button class="tab-btn" data-tab="interpretation">Interpretation</button>
-                        <button class="tab-btn" data-tab="provenance">Provenance</button>
-                        <button class="tab-btn" data-tab="replay">Reprocessing</button>
+            <!-- 1. DASHBOARD SECTION -->
+            <section id="sec-dashboard" class="content-section active">
+                <header class="section-header">
+                    <h2>Overview Dashboard</h2>
+                    <div class="header-actions">
+                        <button class="btn btn-primary" onclick="navigateTo('ingest')">
+                            <i class="fa-solid fa-plus"></i> Ingest Evidence
+                        </button>
                     </div>
                 </header>
 
-                <div class="tab-content active" id="tab-evidence">
-                    <div class="section-header">
-                        <h3>Raw Evidence</h3>
-                        <span class="badge badge-authoritative">Authoritative</span>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon blue"><i class="fa-solid fa-layer-group"></i></div>
+                        <div class="stat-content">
+                            <h3>Total Events</h3>
+                            <div class="stat-value" id="dash-total-events">0</div>
+                        </div>
                     </div>
-                    <div class="metadata-grid" id="evidence-metadata">
-                        <!-- Metadata populated here -->
+                    <div class="stat-card">
+                        <div class="stat-icon green"><i class="fa-solid fa-check-double"></i></div>
+                        <div class="stat-content">
+                            <h3>Known / Parsed</h3>
+                            <div class="stat-value" id="dash-known-events">0</div>
+                        </div>
                     </div>
-                    <pre class="raw-bytes" id="evidence-bytes"></pre>
+                    <div class="stat-card">
+                        <div class="stat-icon orange"><i class="fa-solid fa-circle-question"></i></div>
+                        <div class="stat-content">
+                            <h3>Unknown Formats</h3>
+                            <div class="stat-value" id="dash-unknown-events">0</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon purple"><i class="fa-solid fa-microchip"></i></div>
+                        <div class="stat-content">
+                            <h3>System Status</h3>
+                            <div class="stat-value text-success">Healthy</div>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="tab-content" id="tab-interpretation">
-                    <div class="section-header">
-                        <h3>Detailed Interpretation</h3>
-                        <span id="interpretation-integrity" class="badge"></span>
-                    </div>
-                    <div class="metadata-grid" id="interpretation-metadata"></div>
-                    <!-- Unknown-format panel inserted here dynamically -->
-                    <div id="unknown-format-container"></div>
-                    <div id="frames-container"></div>
-                </div>
-
-                <div class="tab-content" id="tab-provenance">
-                    <div class="section-header">
-                        <h3>Provenance Explorer</h3>
-                        <span class="badge badge-warning">Field Lineage</span>
-                    </div>
-                    <div id="provenance-explorer-container">
-                        <div style="color: var(--text-muted);">Load an interpretation first.</div>
-                    </div>
-                </div>
-
-                <div class="tab-content" id="tab-replay">
-                    <div class="section-header">
-                        <h3>Ephemeral Reprocessing</h3>
-                    </div>
-                    <div class="replay-warning">
-                        Replay executes a declarative pipeline against the raw evidence. It does not modify the original stored evidence.
-                    </div>
-                    <form id="replay-form" class="replay-form">
-                        <div class="form-group">
-                            <label>Framer</label>
-                            <div class="input-row">
-                                <input type="text" id="framer-id" value="NewlineFramer" readonly>
-                                <input type="text" id="framer-version" value="1.0.0" readonly>
+                <div class="dashboard-cards">
+                    <div class="card recent-events-card">
+                        <div class="card-header">
+                            <h3>Recent Events</h3>
+                            <button class="btn btn-icon" id="dash-refresh-btn"><i class="fa-solid fa-arrows-rotate"></i></button>
+                        </div>
+                        <div class="card-body">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Event ID</th>
+                                        <th>Source</th>
+                                        <th>Integrity</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dash-recent-events-tbody">
+                                    <!-- Populated via JS -->
+                                </tbody>
+                            </table>
+                            <div id="dash-empty-state" class="empty-state hidden">
+                                <i class="fa-solid fa-inbox"></i>
+                                <p>No events found</p>
+                                <button class="btn btn-outline" onclick="navigateTo('ingest')">Ingest First Event</button>
                             </div>
                         </div>
-                        <div class="form-group">
-                            <label>Mapper</label>
-                            <div class="input-row">
-                                <input type="text" id="mapper-id" value="DefaultMapper" readonly>
-                                <input type="text" id="mapper-version" value="1.0.0" readonly>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 2. INGEST EVIDENCE SECTION -->
+            <section id="sec-ingest" class="content-section">
+                <header class="section-header">
+                    <h2>Ingest Evidence</h2>
+                </header>
+                <div class="card ingest-card">
+                    <div class="card-body">
+                        <div class="ingest-instruction">
+                            <i class="fa-solid fa-terminal fa-2x"></i>
+                            <div class="ingest-text">
+                                <h3>CLI Ingestion</h3>
+                                <p>Currently, ULPX processes raw evidence securely via the backend pipeline CLI or Kafka ingestion adapter.</p>
+                                <p>To submit a new log or evidence file for analysis, use the <code>ulpx-ingest</code> command line tool from your server environment:</p>
+
+                                <div class="code-block">
+                                    <pre><code># 1. Create a sample log file
+echo "vendor=ACME product=Firewall action=DENY" > sample.log
+
+# 2. Ingest the file into ULPX
+cargo run -p ulpx-ingest -- process sample.log</code></pre>
+                                    <button class="btn btn-copy" onclick="copyIngestCode()"><i class="fa-regular fa-copy"></i></button>
+                                </div>
+                                <p class="text-muted mt-2">After ingestion, the pipeline will return an Event ID. Navigate to the <strong>Events Stream</strong> to review and analyze the processed evidence.</p>
                             </div>
                         </div>
-                        <div class="form-group">
-                            <label>Parsers (Comma-separated)</label>
-                            <input type="text" id="parser-registry" value="json-flat, syslog, cef">
-                            <small>Supported built-ins: json-flat, syslog, cef</small>
-                        </div>
-                        <div class="form-group">
-                            <label>Inference Detectors (Comma-separated)</label>
-                            <input type="text" id="inference-detectors" value="json, syslog, cef">
-                            <small>Supported built-ins: json, syslog, cef</small>
-                        </div>
-                        <button type="submit" id="run-replay-btn">Run Reprocessing</button>
-                    </form>
-                    
-                    <div id="replay-results" class="hidden">
-                        <h4>Replay Outcome</h4>
-                        <div class="metadata-grid" id="replay-metadata"></div>
-                        <div id="replay-frames-container"></div>
                     </div>
-                    <div id="replay-error" class="hidden error-box"></div>
                 </div>
-            </div>
+            </section>
+
+            <!-- 3. EVENTS STREAM SECTION -->
+            <section id="sec-events" class="content-section">
+                <header class="section-header">
+                    <h2>Events Stream</h2>
+                    <div class="header-actions">
+                        <button class="btn btn-outline" id="events-refresh-btn"><i class="fa-solid fa-arrows-rotate"></i> Refresh</button>
+                    </div>
+                </header>
+                <div class="card">
+                    <div class="card-body p-0">
+                        <table class="data-table selectable-table">
+                            <thead>
+                                <tr>
+                                    <th>Event ID</th>
+                                    <th>Source</th>
+                                    <th>Integrity</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="events-list-tbody">
+                                <!-- Events populated here -->
+                            </tbody>
+                        </table>
+                        <div id="events-empty-state" class="empty-state hidden">
+                            <i class="fa-solid fa-inbox fa-3x"></i>
+                            <p>No events yet</p>
+                            <p class="text-muted">Ingest evidence to create your first ULPX event.</p>
+                        </div>
+                        <div class="pagination-controls">
+                            <button class="btn btn-icon" id="prev-page-btn" disabled><i class="fa-solid fa-chevron-left"></i></button>
+                            <span id="page-info" class="page-info">Page 1</span>
+                            <button class="btn btn-icon" id="next-page-btn" disabled><i class="fa-solid fa-chevron-right"></i></button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 4. ANALYSIS SECTION (Requires Event) -->
+            <section id="sec-analysis" class="content-section">
+                <header class="section-header">
+                    <h2>Analysis Workspace</h2>
+                    <div class="header-actions">
+                        <div class="active-event-badge">
+                            <span class="label">EVENT:</span>
+                            <span class="value" id="analysis-event-id"></span>
+                        </div>
+                    </div>
+                </header>
+
+                <div class="analysis-grid">
+                    <!-- Left Column: Interpretation & Semantic Mapping -->
+                    <div class="analysis-main" id="tab-interpretation">
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <h3>Semantic Interpretation</h3>
+                                <span id="analysis-integrity-badge" class="badge"></span>
+                            </div>
+                            <div class="card-body">
+                                <div class="metadata-grid mb-3" id="analysis-metadata">
+                                    <!-- Populated via JS -->
+                                </div>
+                                <div id="analysis-frames-container">
+                                    <!-- Populated via JS -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right Column: Raw Evidence & Source -->
+                    <div class="analysis-sidebar" id="tab-evidence">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Raw Evidence</h3>
+                                <span class="badge badge-primary">Authoritative</span>
+                            </div>
+                            <div class="card-body">
+                                <div class="metadata-grid compact mb-2" id="evidence-metadata">
+                                    <!-- Populated via JS -->
+                                </div>
+                                <div class="raw-evidence-container">
+                                    <pre id="evidence-bytes" class="raw-bytes"></pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 5. PROVENANCE SECTION (Requires Event) -->
+            <section id="sec-provenance" class="content-section">
+                <header class="section-header">
+                    <h2 id="tab-provenance">Provenance Explorer</h2>
+                    <div class="header-actions">
+                        <div class="active-event-badge">
+                            <span class="label">EVENT:</span>
+                            <span class="value" id="prov-event-id"></span>
+                        </div>
+                    </div>
+                </header>
+
+                <div class="provenance-layout">
+                    <div class="provenance-flow-diagram">
+                        <div class="flow-node"><i class="fa-solid fa-file-lines"></i> Raw Evidence</div>
+                        <div class="flow-arrow"><i class="fa-solid fa-arrow-down"></i></div>
+                        <div class="flow-node"><i class="fa-solid fa-crop-simple"></i> Framing</div>
+                        <div class="flow-arrow"><i class="fa-solid fa-arrow-down"></i></div>
+                        <div class="flow-node"><i class="fa-solid fa-magnifying-glass"></i> Format Detection</div>
+                        <div class="flow-arrow"><i class="fa-solid fa-arrow-down"></i></div>
+                        <div class="flow-node"><i class="fa-solid fa-code"></i> Parsing</div>
+                        <div class="flow-arrow"><i class="fa-solid fa-arrow-down"></i></div>
+                        <div class="flow-node"><i class="fa-solid fa-network-wired"></i> Semantic Mapping</div>
+                        <div class="flow-arrow"><i class="fa-solid fa-arrow-down"></i></div>
+                        <div class="flow-node terminal"><i class="fa-solid fa-shield"></i> ULPX Event</div>
+                    </div>
+
+                    <div class="provenance-content card">
+                        <div class="card-header">
+                            <h3>Field Lineage</h3>
+                            <span class="badge badge-warning">Immutable Audit Trail</span>
+                        </div>
+                        <div class="card-body" id="provenance-explorer-container">
+                            <div class="text-muted"><i class="fa-solid fa-circle-notch fa-spin"></i> Loading provenance data...</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 6. UNKNOWN FORMATS SECTION (Requires Event) -->
+            <section id="sec-unknown" class="content-section">
+                <header class="section-header">
+                    <h2>Unknown Formats Review</h2>
+                    <div class="header-actions">
+                        <div class="active-event-badge">
+                            <span class="label">EVENT:</span>
+                            <span class="value" id="unknown-event-id"></span>
+                        </div>
+                    </div>
+                </header>
+
+                <div id="unknown-format-container">
+                    <div class="empty-state">
+                        <i class="fa-solid fa-check-circle fa-3x text-success"></i>
+                        <p>No unknown formats detected in this event.</p>
+                        <p class="text-muted">All frames were successfully parsed by authoritative parsers.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 7. REPROCESSING SECTION (Requires Event) -->
+            <section id="sec-replay" class="content-section">
+                <header class="section-header">
+                    <h2 id="tab-replay">Ephemeral Reprocessing</h2>
+                    <div class="header-actions">
+                        <div class="active-event-badge">
+                            <span class="label">EVENT:</span>
+                            <span class="value" id="replay-event-id"></span>
+                        </div>
+                    </div>
+                </header>
+
+                <div class="card border-warning mb-3">
+                    <div class="card-body text-warning">
+                        <i class="fa-solid fa-circle-info"></i> Reprocessing executes a declarative pipeline against the raw evidence. It does <strong>not</strong> modify the original stored evidence.
+                    </div>
+                </div>
+
+                <div class="analysis-grid">
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Pipeline Configuration</h3>
+                        </div>
+                        <div class="card-body">
+                            <form id="replay-form" class="custom-form">
+                                <div class="form-row">
+                                    <div class="form-group col">
+                                        <label>Framer ID</label>
+                                        <input type="text" id="framer-id" class="form-control" value="NewlineFramer" readonly>
+                                    </div>
+                                    <div class="form-group col">
+                                        <label>Framer Version</label>
+                                        <input type="text" id="framer-version" class="form-control" value="1.0.0" readonly>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group col">
+                                        <label>Mapper ID</label>
+                                        <input type="text" id="mapper-id" class="form-control" value="DefaultMapper" readonly>
+                                    </div>
+                                    <div class="form-group col">
+                                        <label>Mapper Version</label>
+                                        <input type="text" id="mapper-version" class="form-control" value="1.0.0" readonly>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label>Parsers (Comma-separated)</label>
+                                    <input type="text" id="parser-registry" class="form-control" value="json-flat, syslog, cef">
+                                    <div class="form-hint">Supported built-ins: json-flat, syslog, cef</div>
+                                </div>
+                                <div class="form-group">
+                                    <label>Inference Detectors (Comma-separated)</label>
+                                    <input type="text" id="inference-detectors" class="form-control" value="json, syslog, cef">
+                                    <div class="form-hint">Supported built-ins: json, syslog, cef</div>
+                                </div>
+                                <div class="form-actions mt-3">
+                                    <button type="submit" id="run-replay-btn" class="btn btn-primary w-100">
+                                        <i class="fa-solid fa-play"></i> Run Reprocessing
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Reprocessing Outcome</h3>
+                        </div>
+                        <div class="card-body">
+                            <div id="replay-empty" class="empty-state">
+                                <i class="fa-solid fa-vial fa-2x"></i>
+                                <p>Configure pipeline and run to see outcome</p>
+                            </div>
+                            <div id="replay-error" class="alert alert-danger hidden"></div>
+                            <div id="replay-results" class="hidden">
+                                <div class="metadata-grid mb-3" id="replay-metadata"></div>
+                                <div id="replay-frames-container"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 8. ABOUT SECTION -->
+            <section id="sec-about" class="content-section">
+                <header class="section-header">
+                    <h2>System Overview</h2>
+                </header>
+
+                <div class="about-grid">
+                    <div class="card">
+                        <div class="card-header">
+                            <h3><i class="fa-solid fa-shield-halved text-primary"></i> Universal Lossless Security Telemetry</h3>
+                        </div>
+                        <div class="card-body">
+                            <p>ULPX processes heterogeneous security and network telemetry while strictly preserving original evidence.</p>
+
+                            <ul class="feature-list">
+                                <li>
+                                    <strong>Evidence Preservation</strong>
+                                    <p>Original input is never silently modified or discarded. The system preserves information to recover input byte-for-byte.</p>
+                                </li>
+                                <li>
+                                    <strong>Format Detection & Parsing</strong>
+                                    <p>Decoupled framing and parsing identifies event boundaries before applying strict structural parsers.</p>
+                                </li>
+                                <li>
+                                    <strong>Semantic Mapping</strong>
+                                    <p>Parsed internal representations (ULPX-IR) are mapped to canonical models (e.g. OCSF) for analysis.</p>
+                                </li>
+                                <li>
+                                    <strong>Provenance Tracking</strong>
+                                    <p>Every extracted field maintains an immutable audit trail pointing back to the exact byte span in the raw evidence.</p>
+                                </li>
+                                <li>
+                                    <strong>Unknown-Format Inference</strong>
+                                    <p>When authoritative parsers fail, the inference engine structural detectors analyze the format and confidently abstain if unknown.</p>
+                                </li>
+                                <li>
+                                    <strong>Air-Gapped Capability</strong>
+                                    <p>Designed for fully disconnected, sovereign environments with zero external runtime dependencies.</p>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </section>
         </main>
     </div>
+
     <script src="/app.js"></script>
 </body>
 </html>
