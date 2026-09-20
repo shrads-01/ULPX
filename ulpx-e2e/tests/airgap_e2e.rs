@@ -192,7 +192,7 @@ async fn test_airgap_end_to_end_real_docker() {
     );
     assert!(
         html.contains("tab-provenance"),
-        "[Requirement 4] UI does not contain Phase 15 Provenance Explorer element"
+        "[Requirement 4] UI does not contain Provenance Explorer element"
     );
 
     // ─────────────────────────────────────────────────────────────────────────

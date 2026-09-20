@@ -1,4 +1,4 @@
-//! Phase 8 — Unknown-Format Inference for ULPX.
+//! Unknown-Format Inference for ULPX.
 //!
 //! This crate provides a deterministic, evidence-based inference subsystem
 //! that analyses framed records of unknown format and produces structured

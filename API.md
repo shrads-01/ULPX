@@ -154,7 +154,7 @@ Returned if the event ID does not exist in the store.
   }
 }
 ```
-*Note: Phase 15 declarative boundary enforcement limits the `framer_id` to exactly `"NewlineFramer"` and version `"1.0.0"`. Unsupported framers return a 400 Bad Request.*
+*Note: Declarative boundary enforcement limits the `framer_id` to exactly `"NewlineFramer"` and version `"1.0.0"`. Unsupported framers return a 400 Bad Request.*
 
 ### Response (200 OK)
 Returns the same detailed interpretation JSON format as the `GET /api/v1/interpretation/:event_id/detailed` endpoint, but computed ephemerally using the requested pipeline.

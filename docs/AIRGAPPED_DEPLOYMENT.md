@@ -1,8 +1,8 @@
-# Phase 16: Air-Gapped Deployment & Network Isolation
+# Air-Gapped Deployment & Network Isolation
 
 ## Overview
 
-ULPX is designed from the ground up for high-security, sovereign, and fully disconnected (air-gapped) environments. Phase 16 provides a verified, reproducible Docker Compose deployment that guarantees:
+ULPX is designed from the ground up for high-security, sovereign, and fully disconnected (air-gapped) environments. This repository provides a verified, reproducible Docker Compose deployment that guarantees:
 1. **Zero External Runtime Dependencies**: Binaries, structural heuristic parsers, schema converters, and web UI assets are fully self-contained. No external models, packages, crates, or runtime fonts/CDNs are queried or downloaded.
 2. **Kernel-Enforced Network Isolation**: The deployment runs on a Docker bridge network with `internal: true`. The Docker daemon and Linux kernel drop all outbound gateway/NAT packets from containers on this network.
 3. **Lossless Evidence Persistence**: Ingested raw telemetry and cryptographic content hashes persist on a dedicated local volume (`ulpx_data:/data`) across container lifecycle events.
@@ -24,7 +24,7 @@ Host System / CI Environment
   │     │           │     ├── Port: 3000:3000 (host-mapped for local analyst UI)
   │     │           │     └── Volume: ulpx_data -> /data
   │     │           │
-  │     │           └── [ulpx_redpanda] (Phase 14 streaming broker)
+  │     │           └── [ulpx_redpanda] (Kafka/Redpanda streaming broker)
   │     │                 └── Port: 9092:9092
   │     │
   │     └── Volumes:

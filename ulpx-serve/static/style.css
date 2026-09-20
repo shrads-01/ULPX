@@ -345,7 +345,7 @@ h4 {
     margin: 16px 0;
 }
 
-/* ── Confidence bars (Phase 15) ────────────────────────────── */
+/* ── Confidence bars ────────────────────────────── */
 .confidence-bar-wrapper {
     display: flex;
     align-items: center;
@@ -402,7 +402,7 @@ h4 {
     letter-spacing: 0.05em;
 }
 
-/* ── Provenance explorer (Phase 15) ────────────────────────── */
+/* ── Provenance explorer ────────────────────────── */
 .prov-chain {
     display: flex;
     flex-direction: column;
@@ -490,7 +490,7 @@ h4 {
     padding: 16px;
 }
 
-/* ── Unknown-format panel (Phase 15) ───────────────────────── */
+/* ── Unknown-format panel ───────────────────────── */
 .unknown-format-panel {
     background: #1a1f2e;
     border: 1px solid #3b4a6b;

@@ -1,4 +1,4 @@
-# Phase 14 Kafka Streaming Blocker
+# Kafka Streaming Blocker
 
 The implementation of true durable Kafka consumer group offset semantics is currently blocked.
 

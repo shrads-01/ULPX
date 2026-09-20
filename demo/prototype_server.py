@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ULPX Prototype Server
-Serves the ULPX Phase 15 Analyst UI and REST API.
+Serves the ULPX Analyst UI and REST API.
 """
 
 import http.server

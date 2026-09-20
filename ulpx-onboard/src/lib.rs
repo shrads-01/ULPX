@@ -1,4 +1,4 @@
-//! Phase 8: ParserLab and Parser Onboarding.
+//! ParserLab and Parser Onboarding.
 //!
 //! This crate provides a deterministic, offline mechanism for defining and
 //! generating real parsers from a declarative specification.

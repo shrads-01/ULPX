@@ -1,7 +1,7 @@
 # ULPX -- Architecture
 
 > **Status**: Living document. Updated after each implemented phase.
-> Last updated: Phase 18 Documentation / Benchmark.
+> Last updated: Documentation / Benchmark.
 
 ---
 
@@ -213,7 +213,7 @@ The following capabilities work with no network connection, no external services
 
 ---
 
-## Implemented Infrastructure (Phase 18)
+## Implemented Infrastructure
 
 ### Authoritative evidence:
     EvidenceStore (LocalEvidenceStore)
@@ -239,7 +239,7 @@ The following capabilities work with no network connection, no external services
 - **Production API Server**: Authentication, authorization, and rate limiting are not yet implemented.
 - **Interpretation Persistence**: Full durable storage of interpretation artifacts is not yet implemented.
 
-## Known limitations (Phase 18)
+## Known limitations
 
 - **Kafka Streaming**: No durable consumer-group offset commits or at-least-once guarantee.
 - **In-memory index**: `LocalEvidenceStore` builds its entire `EventId` index in memory at startup via an O(N) sequential file scan.

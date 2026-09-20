@@ -1,4 +1,4 @@
-# ULPX Benchmarks (Phase 17)
+# ULPX Benchmarks
 
 This crate provides a data-driven macro-benchmark suite with deterministic fixture-based correctness assertions for evaluating the ULPX ingestion and parsing pipeline.
 

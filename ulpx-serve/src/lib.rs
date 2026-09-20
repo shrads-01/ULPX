@@ -163,7 +163,7 @@ async fn get_entity(
 ) -> Result<Json<Vec<String>>, (StatusCode, String)> {
     // ARCHITECTURE NOTE:
     // This API boundary operates exclusively in local/ephemeral offline mode, using `LocalEvidenceStore`.
-    // It dynamically reconstructs entity associations on-the-fly using the canonical Phase 15 declarative
+    // It dynamically reconstructs entity associations on-the-fly using the canonical declarative
     // pipeline configuration. It does NOT depend on PostgreSQL, which is designed as an optional
     // export/durable backend tested independently in `ulpx-postgres`.
 
@@ -264,7 +264,7 @@ async fn ephemeral_replay(
         )
     })?;
 
-    // Phase 15 declarative boundary enforcement:
+    // Declarative boundary enforcement:
     // Only the explicit built-in components are permitted.
     // Dynamic WASM parser loading is deferred to a future phase.
     if payload.pipeline_config.framer_id != "NewlineFramer"

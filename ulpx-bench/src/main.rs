@@ -679,7 +679,7 @@ fn main() {
         }
     }
 
-    println!("Starting ULPX Phase 17 Benchmarks...");
+    println!("Starting ULPX Benchmarks...");
     println!("Loaded {} fixtures.", fixtures.len());
 
     let (all_correct, m) = run_bench(&fixtures, 1000);

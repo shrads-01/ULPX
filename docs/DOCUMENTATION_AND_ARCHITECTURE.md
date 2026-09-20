@@ -1,20 +1,20 @@
-# Phase 18 — Documentation, Architecture & Demonstration
+# Documentation, Architecture & Demonstration
 
 ## Objective
-The objective of Phase 18 is to ensure the project documentation accurately reflects the current state of the implemented system, explicitly documenting architectural boundaries, explicit limitations, and capabilities implemented in previous phases (Phases 14–17). No source code or runtime behavior is modified in this phase.
+The objective is to ensure the project documentation accurately reflects the current state of the implemented system, explicitly documenting architectural boundaries, explicit limitations, and capabilities implemented in previous phases. No source code or runtime behavior is modified in this update.
 
 ## Implemented Capabilities Documented
 
-### Phase 14: Kafka Boundary & Blocker
-ULPX implements a streaming boundary for Kafka/Redpanda via `ulpx-ingest` (using `rskafka`). This is an ingestion adapter only. It lacks consumer-group tracking, durable broker offset commits, and at-least-once delivery guarantees. See `docs/PHASE_14_BLOCKER.md` for full details.
+### Kafka/Redpanda Streaming Boundary & Blocker
+ULPX implements a streaming boundary for Kafka/Redpanda via `ulpx-ingest` (using `rskafka`). This is an ingestion adapter only. It lacks consumer-group tracking, durable broker offset commits, and at-least-once delivery guarantees. See `docs/KAFKA_LIMITATIONS.md` for full details.
 
-### Phase 15: Analyst UI & API
+### Analyst UI & API
 The REST API (in `ulpx-serve`) and Analyst UI provide capabilities to query evidence, retrieve canonical interpretations (including parsing, inference confidence, semantic mapping, and field provenance), and perform ephemeral pipeline replay without mutating authoritative evidence. The API also includes the `GET /api/v1/entity/:type/:value` endpoint for entity resolution.
 
-### Phase 16: Air-Gapped Deployment
+### Air-Gapped Deployment
 ULPX is fully capable of operating without an internet connection or external services. The `deploy/docker-compose.yml` provides a completely isolated, offline deployment for ingestion, parsing, inference, storage, and the UI. Validated by `ulpx-e2e`.
 
-### Phase 17: Benchmark
+### Benchmarking
 The `ulpx-bench` crate provides deterministic macro-benchmarks using 13 strict fixtures covering known, malformed, adversarial, and unseen vendor scenarios. It measures correctness, completeness, inference mapping, throughput, latency, and memory usage.
 
 ### Infrastructure Boundaries
@@ -38,7 +38,7 @@ The workspace includes several crates representing boundaries for derived data a
 - `ARCHITECTURE.md`
 - `API.md`
 - `demo/DEMO.md`
-- `docs/PHASE_18.md` (this document)
+- `docs/DOCUMENTATION_AND_ARCHITECTURE.md` (this document)
 
 ## Validation Commands
 To verify the integrity of the workspace after documentation updates, run:

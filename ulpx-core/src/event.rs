@@ -45,7 +45,7 @@ impl EventId {
     }
 }
 
-/// Source of an event (e.g., filename, socket). No validation required in Phase 1.
+/// Source of an event (e.g., filename, socket). No validation required.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Source(pub String);
 

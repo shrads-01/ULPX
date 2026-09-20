@@ -52,7 +52,7 @@ pub fn derive_spec_from_inference(result: &InferenceResult) -> Result<ParserSpec
 /// Attempts to generate a `ParserSpec` from a `FormatCandidate`.
 pub fn derive_spec_from_candidate(candidate: &FormatCandidate) -> Result<ParserSpec, OnboardError> {
     // In a future phase, we would parse schema information out of candidate.evidence.
-    // For Phase 9, we map specific candidate IDs to specs to demonstrate the pipeline.
+    // We map specific candidate IDs to specs to demonstrate the pipeline.
 
     match candidate.parser_id.as_str() {
         "generic-kv-space-eq" => Ok(ParserSpec {

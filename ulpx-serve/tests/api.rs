@@ -403,7 +403,7 @@ async fn test_empty_store_returns_zero_events_cleanly() {
 
     let _ = std::fs::remove_file(path);
 }
-// ── Phase 15: Provenance / confidence / unknown-format API tests ───────────
+// ── Provenance / confidence / unknown-format API tests ───────────
 
 /// The evidence endpoint must return size_bytes in addition to the payload.
 #[tokio::test]
@@ -571,7 +571,7 @@ async fn test_ui_includes_provenance_tab() {
     let html =
         String::from_utf8(res.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
 
-    // Phase 15 additions
+    // Analyst UI additions
     assert!(
         html.contains("tab-provenance"),
         "HTML must contain the provenance tab"
@@ -588,10 +588,10 @@ async fn test_ui_includes_provenance_tab() {
     let _ = std::fs::remove_file(path);
 }
 
-/// The app.js must contain the Phase 15 JavaScript functions.
+/// The app.js must contain the Analyst UI JavaScript functions.
 #[tokio::test]
-async fn test_app_js_contains_phase15_functions() {
-    let path = "test_serve_js_phase15.ulpx";
+async fn test_app_js_contains_analyst_ui_functions() {
+    let path = "test_serve_js_analyst_ui.ulpx";
     let _ = std::fs::remove_file(path);
     let store = LocalEvidenceStore::new(path).unwrap();
     let app = create_router(Arc::new(store));

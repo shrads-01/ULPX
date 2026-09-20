@@ -112,7 +112,7 @@ function buildConfidenceBar(label, level) {
 }
 
 // ── Unknown-Format Panel ────────────────────────────────────────────────────
-// Renders the Phase 15 unknown-format review panel if any frame uses inference.
+// Renders the unknown-format review panel if any frame uses inference.
 function renderUnknownFormatPanel(frames, containerEl) {
     containerEl.innerHTML = '';
     const inferredFrames = (frames || []).filter(f => f.inference_decision !== null && f.inference_decision !== undefined);
@@ -211,7 +211,7 @@ function renderUnknownFormatPanel(frames, containerEl) {
 }
 
 // ── Provenance Explorer ─────────────────────────────────────────────────────
-// Renders the Phase 15 provenance explorer for all canonical fields across frames.
+// Renders the provenance explorer for all canonical fields across frames.
 // Each field shows: OCSF canonical name → source field (ULPX-IR) → raw byte span
 function renderProvenanceExplorer(data, containerEl) {
     containerEl.innerHTML = '';

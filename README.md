@@ -21,8 +21,8 @@ raw evidence -> lossless evidence storage -> framing -> parser/inference -> ULPX
 
 ---
 
-## Streaming Ingestion (Phase 14)
-ULPX implements a streaming boundary for Kafka/Redpanda via `ulpx-ingest` (using `rskafka`). Currently, it has explicit limitations: no Kafka Consumer Groups or broker offset commits, consumption starts at `StartOffset::Latest`, and there is no at-least-once delivery guarantee. Processing failures are retried locally in memory. For details, see [docs/PHASE_14_BLOCKER.md](docs/PHASE_14_BLOCKER.md).
+## Streaming Ingestion
+ULPX implements a streaming boundary for Kafka/Redpanda via `ulpx-ingest` (using `rskafka`). Currently, it has explicit limitations: no Kafka Consumer Groups or broker offset commits, consumption starts at `StartOffset::Latest`, and there is no at-least-once delivery guarantee. Processing failures are retried locally in memory. For details, see [docs/KAFKA_LIMITATIONS.md](docs/KAFKA_LIMITATIONS.md).
 
 ## Infrastructure Boundaries
 ULPX provides workspace crates for integration boundaries: `ulpx-postgres` (relational persistence), `ulpx-opensearch` (searchable interpretations), `ulpx-parquet` (columnar export), and `ulpx-object-store` (archival). These are derived projections and export layers, and are not required for the default local server (`ulpx-serve`).
@@ -71,7 +71,7 @@ cargo run -p ulpx-bench
 
 ---
 
-## Air-Gapped Deployment (Phase 16)
+## Air-Gapped Deployment
 
 ULPX includes a fully air-gapped Docker Compose deployment ensuring true offline operation.
 
@@ -88,7 +88,7 @@ docker compose -f deploy/docker-compose.yml up --build
 
 ---
 
-## Benchmark Suite (Phase 17)
+## Benchmarking
 
 The `ulpx-bench` crate provides a deterministic macro-benchmark evaluated against 13 strict fixtures:
 - **Known (3)**: JSON, CEF, Syslog
@@ -109,5 +109,5 @@ The `ulpx-bench` crate provides a deterministic macro-benchmark evaluated agains
 - [Architecture Document](ARCHITECTURE.md)
 - [REST API Reference](API.md)
 - [Detailed Benchmarks](ulpx-bench/README.md)
-- [Air-Gapped Deployment Guide](docs/PHASE_16_AIRGAP.md)
-- [Phase 18 Documentation](docs/PHASE_18.md)
+- [Air-Gapped Deployment Guide](docs/AIRGAPPED_DEPLOYMENT.md)
+- [Documentation](docs/DOCUMENTATION_AND_ARCHITECTURE.md)

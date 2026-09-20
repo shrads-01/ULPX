@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|e| format!("Failed to bind to '{}': {}", serve_addr, e))?;
 
     println!("Listening on http://{}", serve_addr);
-    println!("Access the Phase 15 UI at http://{}", serve_addr);
+    println!("Access the ULPX Analyst UI at http://{}", serve_addr);
 
     axum::serve(listener, app).await?;
 
