@@ -1,7 +1,6 @@
 # ULPX Benchmarks (Phase 17)
 
-This crate provides a deterministic, data-driven macro-benchmark suite for
-evaluating the ULPX ingestion and parsing pipeline.
+This crate provides a data-driven macro-benchmark suite with deterministic fixture-based correctness assertions for evaluating the ULPX ingestion and parsing pipeline.
 
 ## Important Disclaimer
 
