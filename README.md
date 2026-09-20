@@ -21,6 +21,14 @@ raw evidence -> lossless evidence storage -> framing -> parser/inference -> ULPX
 
 ---
 
+## Streaming Ingestion (Phase 14)
+ULPX implements a streaming boundary for Kafka/Redpanda via `ulpx-ingest` (using `rskafka`). Currently, it has explicit limitations: no Kafka Consumer Groups or broker offset commits, consumption starts at `StartOffset::Latest`, and there is no at-least-once delivery guarantee. Processing failures are retried locally in memory. For details, see [docs/PHASE_14_BLOCKER.md](docs/PHASE_14_BLOCKER.md).
+
+## Infrastructure Boundaries
+ULPX provides workspace crates for integration boundaries: `ulpx-postgres` (relational persistence), `ulpx-opensearch` (searchable interpretations), `ulpx-parquet` (columnar export), and `ulpx-object-store` (archival). These are derived projections and export layers, and are not required for the default local server (`ulpx-serve`).
+
+---
+
 ## Quick-Start / Demo Instructions
 
 ### 1. Build and Test
@@ -102,3 +110,4 @@ The `ulpx-bench` crate provides a deterministic macro-benchmark evaluated agains
 - [REST API Reference](API.md)
 - [Detailed Benchmarks](ulpx-bench/README.md)
 - [Air-Gapped Deployment Guide](docs/PHASE_16_AIRGAP.md)
+- [Phase 18 Documentation](docs/PHASE_18.md)

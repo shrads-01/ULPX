@@ -1,4 +1,4 @@
-﻿# ULPX Demonstration Walkthrough
+# ULPX Demonstration Walkthrough
 
 This guide provides a reproducible, one-command-at-a-time walkthrough to demonstrate ULPX's core capabilities to a reviewer. All commands are designed for Windows PowerShell.
 
@@ -40,8 +40,10 @@ Retrieve the canonical interpretation, which includes inference, parsed IR, sema
 Invoke-RestMethod -Uri "http://localhost:3000/api/v1/interpretation/$EVENT_ID/detailed" | ConvertTo-Json -Depth 10
 ```
 Notice how ULPX used the `generic-kv-space-eq` structural detector to correctly extract the fields without a hardcoded parser, and preserved provenance data.
+## 5. Phase 15 Analyst UI
+Navigate to `http://localhost:3000/` in a web browser. The Phase 15 Analyst UI allows you to visually explore ingested events, view raw preserved bytes, inspect field provenance, and review the structural inference confidence levels.
 
-## 5. Ephemeral Replay (Reprocessing)
+## 6. Ephemeral Replay (Reprocessing)
 Demonstrate reprocessing the event with a custom pipeline configuration without mutating the original evidence:
 ```powershell
 $ReplayBody = @{
@@ -62,13 +64,13 @@ Invoke-RestMethod -Uri "http://localhost:3000/api/v1/replay" `
   -Body $ReplayBody | ConvertTo-Json -Depth 10
 ```
 
-## 6. Run the Benchmark Suite
+## 7. Run the Benchmark Suite
 Run the Phase 17 deterministic benchmark to prove framing, parsing, and exact completeness validations:
 ```powershell
 cargo run -p ulpx-bench
 ```
 
-## 7. Demonstrate the Air-Gapped Deployment
+## 8. Demonstrate the Air-Gapped Deployment
 Finally, demonstrate that ULPX operates seamlessly in a fully disconnected environment.
 ```powershell
 docker compose -f deploy/docker-compose.yml up --build -d
@@ -83,3 +85,6 @@ When finished, tear down the air-gap environment:
 ```powershell
 docker compose -f deploy/docker-compose.yml down -v
 ```
+
+## 9. Kafka / Streaming Boundary
+ULPX implements a streaming boundary using `rskafka` in `ulpx-ingest`. Note that this is currently an ingestion adapter only. It does **not** provide consumer-group offset commits, it starts consumption at `StartOffset::Latest`, and it provides **no at-least-once delivery guarantees**. It is documented here as an explicit architectural boundary and limitation (Phase 14), rather than a production-grade distributed consumer demonstration.

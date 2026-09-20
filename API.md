@@ -1,4 +1,4 @@
-﻿# ULPX REST API
+# ULPX REST API
 
 The ULPX REST API provides interfaces for querying evidence, retrieving interpretations, and replaying events. It operates at `http://localhost:3000` (or the configured port).
 
@@ -46,10 +46,15 @@ The ULPX REST API provides interfaces for querying evidence, retrieving interpre
 ### Error (404 Not Found)
 Returned if the event ID does not exist in the store.
 
-## 3. Get Detailed Interpretation
+## 3. Get Entity
+**Method**: `GET`
+**Path**: `/api/v1/entity/:type/:value`
+**Purpose**: Retrieve entity resolution and provenance details for a specific entity type and value.
+
+## 4. Get Detailed Interpretation
 **Method**: `GET`  
 **Path**: `/api/v1/interpretation/:event_id/detailed`  
-**Purpose**: Retrieve the current canonical interpretation (parsing, inference, semantic mapping, and provenance) of an event using the default pipeline.
+**Purpose**: Retrieve the current canonical interpretation (parsing, inference confidence/evidence, semantic mapping, and field provenance) of an event using the default pipeline. This retrieval is ephemeral and does not mutate the authoritative raw evidence.
 
 ### Response (200 OK)
 ```json
@@ -120,7 +125,7 @@ Returned if the event ID does not exist in the store.
 }
 ```
 
-## 4. Ephemeral Replay
+## 5. Ephemeral Replay
 **Method**: `POST`  
 **Path**: `/api/v1/replay`  
 **Purpose**: Temporarily reprocess an existing event with a custom pipeline configuration. Does NOT mutate the stored original evidence.

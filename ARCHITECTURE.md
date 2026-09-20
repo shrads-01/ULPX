@@ -145,43 +145,41 @@ the core evidence semantics and all storage backends.
 
 ---
 
-## FUTURE: Infrastructure connection points
+## Infrastructure Connection Points (Implemented)
 
-**None of the following are implemented. They are design directions for later
-phases. Do not assume any of these exist until they are committed.**
+### Streaming ingestion (Kafka / Redpanda)
 
-### FUTURE -- Streaming ingestion (Kafka / Redpanda)
+The streaming boundary is implemented in `ulpx-ingest` using `rskafka`. It operates strictly as an ingestion adapter and is not a dependency of `ulpx-core`.
 
-The intended design is:
-
-```
-[FUTURE] Kafka / Redpanda consumer
+```text
+[Kafka / Redpanda]
       | reads batches of raw bytes per topic/partition
       v
-[FUTURE] ulpx-ingest streaming adapter
+[ulpx-ingest]
+      | streaming adapter (rskafka)
       | frames bytes into per-record boundaries
       | constructs RawEvent (assigns EventId, source)
       v
-EvidenceStore::store(raw_event)   <- no change to this interface
+EvidenceStore::store(raw_event)   <- core interface boundary
 ```
 
-Kafka and Redpanda must never become required dependencies of `ulpx-core`.
+**Explicit Limitations:**
+- `rskafka` does not provide Kafka Consumer Groups or broker offset commits.
+- Consumption starts at `StartOffset::Latest`.
+- There is no at-least-once delivery guarantee or durable broker offset tracking.
+- Processing failures are retried locally in memory.
 
-### FUTURE -- Relational persistence (PostgreSQL)
+### Relational persistence (PostgreSQL)
+Implemented in `ulpx-postgres` as a persistence boundary for PostgreSQL-backed data.
 
-Intended responsibility: durable, indexed storage of `RawEvent` records.
+### Search (OpenSearch)
+Implemented in `ulpx-opensearch`. Analyst-facing indexed search over `CanonicalEvent` and `Interpretation` projections.
 
-### FUTURE -- Search (OpenSearch)
+### Columnar / archival (Parquet / object storage)
+Implemented in `ulpx-parquet` and `ulpx-object-store`. Bulk export of evidence and interpretation records for long-term retention and analytics.
 
-Intended responsibility: analyst-facing indexed search over `CanonicalEvent` and `Interpretation` projections.
-
-### FUTURE -- Columnar / archival (Parquet / object storage)
-
-Intended responsibility: bulk export of evidence and interpretation records for long-term retention and analytics.
-
-### FUTURE -- Interpretation persistence
-
-When persistence is added, `InterpretationId` is suitable as a primary key without changes to the existing type.
+### Interpretation persistence
+When full interpretation persistence is finalized, `InterpretationId` remains the primary key. Currently, interpretation is ephemeral via API.
 
 ---
 
@@ -237,14 +235,17 @@ The following capabilities work with no network connection, no external services
 
 ## Future Infrastructure (Not Implemented)
 
-- **Kafka / Redpanda**: For distributed log ingestion.
 - **Future remote object storage**: may be introduced as another implementation later (e.g. S3).
 - **Production API Server**: Authentication, authorization, and rate limiting are not yet implemented.
+- **Interpretation Persistence**: Full durable storage of interpretation artifacts is not yet implemented.
 
 ## Known limitations (Phase 18)
 
+- **Kafka Streaming**: No durable consumer-group offset commits or at-least-once guarantee.
 - **In-memory index**: `LocalEvidenceStore` builds its entire `EventId` index in memory at startup via an O(N) sequential file scan.
 - **Unbounded log growth**: the append-only log file is never compacted or rotated.
 - **Silent tail recovery**: malformed trailing records are silently discarded on startup.
 - **Memory buffering**: Ingestion currently buffers entire streams into memory.
 - **Categorical Confidence**: Inference operates on discrete categorical confidence (`Low/Medium/High`) using exact rule counters. True probabilistic calibration is mathematically impossible without numeric probability signals and is NOT IMPLEMENTED.
+- **Interpretation**: Interpretation retrieval and replay is currently ephemeral.
+- **Production Readiness**: Benchmark results are local measurements, not production capacity claims. API authentication, authorization, and rate limiting are not implemented.
