@@ -1,7 +1,7 @@
 use std::env;
 use std::sync::Arc;
 use tokio::net::TcpListener;
-use ulpx_core::storage::{LocalEvidenceStore, EvidenceStore};
+use ulpx_core::storage::{EvidenceStore, LocalEvidenceStore};
 use ulpx_serve::create_router;
 
 #[tokio::main]

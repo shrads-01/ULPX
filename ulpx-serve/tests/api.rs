@@ -762,3 +762,27 @@ async fn test_ingest_evidence_endpoint() {
 
     let _ = std::fs::remove_file(path);
 }
+
+#[tokio::test]
+async fn test_health_endpoint() {
+    let path = "test_serve_health.ulpx";
+    let _ = std::fs::remove_file(path);
+    let store = LocalEvidenceStore::new(path).unwrap();
+    let app = create_router(Arc::new(store), path.to_string());
+
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let body_bytes = res.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(body_bytes.as_ref(), b"OK");
+
+    let _ = std::fs::remove_file(path);
+}

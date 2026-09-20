@@ -60,7 +60,12 @@ pub fn create_router(store: Arc<dyn EvidenceStore + Send + Sync>, store_path: St
         )
         .route("/api/v1/replay", post(ephemeral_replay))
         .route("/api/v1/ingest", post(ingest_evidence))
+        .route("/health", get(health_check))
         .with_state(state)
+}
+
+async fn health_check() -> &'static str {
+    "OK"
 }
 
 #[derive(Deserialize)]
@@ -390,28 +395,42 @@ async fn ingest_evidence(
     Json(payload): Json<IngestRequest>,
 ) -> Result<Json<IngestResponse>, (StatusCode, String)> {
     let raw_bytes = if let Some(b64) = payload.evidence_base64 {
-        use base64::{Engine as _, engine::general_purpose};
-        general_purpose::STANDARD.decode(&b64).map_err(|e| {
-            (StatusCode::BAD_REQUEST, format!("Invalid base64: {}", e))
-        })?
+        use base64::{engine::general_purpose, Engine as _};
+        general_purpose::STANDARD
+            .decode(&b64)
+            .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid base64: {}", e)))?
     } else if let Some(txt) = payload.evidence_text {
         txt.into_bytes()
     } else {
-        return Err((StatusCode::BAD_REQUEST, "Must provide evidence_base64 or evidence_text".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Must provide evidence_base64 or evidence_text".to_string(),
+        ));
     };
 
     if raw_bytes.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "Evidence is empty".to_string()));
     }
 
-    let mut ingest_store = ulpx_core::storage::LocalEvidenceStore::new(&state.store_path)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to open store: {}", e)))?;
+    let mut ingest_store =
+        ulpx_core::storage::LocalEvidenceStore::new(&state.store_path).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to open store: {}", e),
+            )
+        })?;
 
     let framer = ulpx_core::framing::newline::NewlineFramer;
 
     // Call existing ingestion logic
-    let result = ulpx_ingest::ingest_buffer(&raw_bytes, &payload.source_name, &framer, &mut ingest_store, 0)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Ingestion failed: {}", e)))?;
+    let result = ulpx_ingest::ingest_buffer(
+        &raw_bytes,
+        &payload.source_name,
+        &framer,
+        &mut ingest_store,
+        0,
+    )
+    .map_err(|e| (StatusCode::BAD_REQUEST, format!("Ingestion failed: {}", e)))?;
 
     Ok(Json(IngestResponse {
         total_records: result.total_records,
