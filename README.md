@@ -18,6 +18,16 @@ raw evidence -> lossless evidence storage -> framing -> parser/inference -> ULPX
 - **Deterministic Replay**: Reprocessing evidence with new parsers yields a new, versioned interpretation without modifying history.
 - **Unknown-Format Inference**: If an event format is unknown, ULPX uses structural detectors to generate a parser spec automatically, explicitly marking confidence.
 - **Air-Gapped Deployment**: ULPX operates without an internet connection, cloud AI dependency, or external APIs.
+- **Browser-Based Evidence Ingestion**: The analyst UI provides an Ingest Evidence workflow. It supports pasted raw evidence and file upload. Evidence is submitted to `POST /api/v1/ingest`. The original lossless evidence guarantees are preserved.
+
+---
+
+## Live Demo
+
+The deployed analyst UI is available at https://ulpx.onrender.com.
+The health endpoint is https://ulpx.onrender.com/health.
+The health endpoint returns OK when the service is healthy.
+The public demo is intended for demonstration only. Render's free service uses ephemeral filesystem storage.
 
 ---
 
@@ -51,6 +61,7 @@ In a separate terminal, use the CLI to process a local file:
 echo 'CEF:0|Vendor|Product|1.0|100|Test|3|src=10.0.0.1' > sample.log
 cargo run -p ulpx-ingest -- process sample.log
 ```
+Alternatively, the UI can be opened at `http://localhost:3000/` and raw evidence can be pasted or uploaded through the Ingest Evidence page.
 
 ### 4. Query Evidence and Interpretations
 Retrieve the canonical interpretation of the ingested event (replace `evt_...` with your actual Event ID):
@@ -73,18 +84,18 @@ cargo run -p ulpx-bench
 
 ## Air-Gapped Deployment
 
-ULPX includes a fully air-gapped Docker Compose deployment ensuring true offline operation.
+ULPX includes a Docker Compose deployment designed for disconnected operation. For a genuinely offline installation, required container images and build dependencies must already be available locally.
 
 ### Deployment Architecture
 - **`ulpx_airgap` Container**: Runs the `ulpx-serve` API and UI.
-- **`airgap_net` Network**: Docker bridge network with `internal: true` ensuring no outbound internet access.
+- **`airgap_net` Network**: The Docker Compose runtime network is configured with `internal: true` ensuring no outbound internet access.
 - **`ulpx_data` Volume**: Persistent storage for evidence.
 
 ### Usage
 ```bash
 docker compose -f deploy/docker-compose.yml up --build
 ```
-*The E2E tests (`cargo test -p ulpx-e2e`) validate that ingestion, parsing, inference, storage, and the UI all function flawlessly within this completely disconnected environment.*
+*The E2E tests (`cargo test -p ulpx-e2e`) exercise ingestion, parsing, inference, storage, and UI behavior in the air-gapped deployment environment.*
 
 ---
 
